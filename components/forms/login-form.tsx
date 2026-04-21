@@ -5,7 +5,7 @@ import {
   DynamicForm,
   type DynamicField,
 } from "@/components/forms/form-builder";
-import { apiClient } from "@/lib/api-helper";
+import { useLoginMutation } from "@/lib/tan-stack/auth";
 import { LoginInput } from "@/lib/validations/auth";
 
 import Link from "next/link";
@@ -64,25 +64,24 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ onSuccess, onError }: LoginFormProps) {
-  const [isLoading, setIsLoading] = React.useState(false);
   const router = useRouter();
-
+  const {
+    mutateAsync: login,
+    isPending: isLoading,
+    isSuccess,
+  } = useLoginMutation();
+  console.log(isSuccess, "+++++++++++++ isSuccess");
   const handleSubmit = async (values: LoginFormValues) => {
-    setIsLoading(true);
-
     try {
-      const headers: HeadersInit = {
-        "Content-Type": "application/json",
-      };
-
-      const response = await apiClient.post("/users/pos/login", values);
-      console.log(response, "+++++++++++++ response");
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Login failed";
-      onError?.(errorMessage);
-    } finally {
-      setIsLoading(false);
+      await login({
+        email: values.email,
+        password: values.password,
+        rememberMe: values.rememberMe,
+      });
+      onSuccess?.(undefined);
+      router.push("/t/dashboard");
+    } catch (e) {
+      onError?.(e instanceof Error ? e.message : "Login failed");
     }
   };
 

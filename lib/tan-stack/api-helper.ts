@@ -1,4 +1,11 @@
 import { API_URL } from "@/constants";
+import { AUTH_KEYS } from "@/lib/tan-stack/auth/key";
+import {
+  clearAuthSession,
+  loadAuthSession,
+  updateSessionTokens,
+} from "@/lib/tan-stack/auth/storage";
+import { queryClient } from "@/lib/tan-stack/query-client";
 
 type ApiHeadersOptions = {
   token?: string | null;
@@ -14,7 +21,6 @@ export function buildApiHeaders(options: ApiHeadersOptions = {}): Headers {
   if (!finalHeaders.has("Content-Type"))
     finalHeaders.set("Content-Type", "application/json");
 
-  // Optional bearer token support
   if (token) finalHeaders.set("Authorization", `Bearer ${token}`);
 
   return finalHeaders;
@@ -30,14 +36,7 @@ export type ApiRequestConfig = Omit<
   headers?: HeadersInit;
   params?: QueryParams;
   body?: BodyInit | Record<string, unknown> | null;
-
-  /**
-   * If true, do not throw on non-2xx. Log only and return `data: null as T`.
-   * Use this for bootstrap/background calls where you don't want UI to break.
-   */
   silent?: boolean;
-
-  /** Internal: prevent refresh loops. Do not set manually. */
   _skipRefresh?: boolean;
 };
 
@@ -62,11 +61,9 @@ export class ApiError<T = unknown> extends Error {
 function withQueryParams(url: string, params?: QueryParams): string {
   if (!params) return url;
   const sp = new URLSearchParams();
-
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null) sp.set(k, String(v));
   }
-
   const qs = sp.toString();
   if (!qs) return url;
   return `${url}${url.includes("?") ? "&" : "?"}${qs}`;
@@ -77,12 +74,10 @@ function normalizeBodyAndHeaders(
   headers: Headers,
 ): BodyInit | undefined {
   if (body == null) return undefined;
-
   if (body instanceof FormData) {
     headers.delete("Content-Type");
     return body;
   }
-
   if (
     typeof body === "string" ||
     body instanceof Blob ||
@@ -90,7 +85,6 @@ function normalizeBodyAndHeaders(
   ) {
     return body;
   }
-
   return JSON.stringify(body);
 }
 
@@ -104,7 +98,6 @@ async function parseResponseBody<T>(response: Response): Promise<T> {
 function resolveUrl(url: string, baseURL?: string): string {
   if (!baseURL) return url;
   if (/^https?:\/\//i.test(url)) return url;
-
   const normalizedBase = baseURL.endsWith("/") ? baseURL.slice(0, -1) : baseURL;
   const normalizedPath = url.startsWith("/") ? url : `/${url}`;
   return `${normalizedBase}${normalizedPath}`;
@@ -123,24 +116,28 @@ function extractErrorMessage(body: unknown, fallback: string): string {
   return fallback || "Request failed";
 }
 
-async function refreshCustomerSession(baseURL?: string): Promise<boolean> {
-  const refreshUrl = resolveUrl("/users/pos/refresh", baseURL);
+function syncAuthQueryAfterTokenUpdate() {
+  const session = loadAuthSession();
+  queryClient.setQueryData(AUTH_KEYS.session(), session);
+}
 
-  const res = await fetch(refreshUrl, {
-    method: "POST",
-    credentials: "include",
-    headers: buildApiHeaders(),
-  });
-
-  if (res.ok) return true;
-
+/**
+ * Dynamic import avoids a static cycle: api-helper → auth/api → apiClient → api-helper.
+ */
+async function tryRefreshSession(): Promise<boolean> {
+  const session = loadAuthSession();
+  if (!session?.refreshToken) return false;
   try {
-    const body = await parseResponseBody<unknown>(res);
-    console.log("[api] refresh failed", res.status, body);
+    const { refreshRequest } = await import("@/lib/tan-stack/auth/api");
+    const tokens = await refreshRequest(session.refreshToken);
+    await updateSessionTokens(tokens.accessToken, tokens.refreshToken);
+    syncAuthQueryAfterTokenUpdate();
+    return true;
   } catch {
-    console.log("[api] refresh failed", res.status);
+    await clearAuthSession();
+    queryClient.setQueryData(AUTH_KEYS.session(), null);
+    return false;
   }
-  return false;
 }
 
 function logApiError(args: {
@@ -176,10 +173,11 @@ async function request<T>(
   } = config;
 
   const requestUrl = withQueryParams(resolveUrl(url, baseURL), params);
-  const finalHeaders = buildApiHeaders({ token, headers });
-  const requestBody = normalizeBodyAndHeaders(body, finalHeaders);
 
   const doFetch = async () => {
+    const effectiveToken = token ?? loadAuthSession()?.accessToken ?? null;
+    const finalHeaders = buildApiHeaders({ token: effectiveToken, headers });
+    const requestBody = normalizeBodyAndHeaders(body, finalHeaders);
     const response = await fetch(requestUrl, {
       ...rest,
       method,
@@ -193,9 +191,8 @@ async function request<T>(
 
   let { response, responseBody } = await doFetch();
 
-  // Auto-refresh on 401, once
   if (response.status === 401 && !_skipRefresh) {
-    const refreshed = await refreshCustomerSession(baseURL);
+    const refreshed = await tryRefreshSession();
     if (refreshed) {
       ({ response, responseBody } = await doFetch());
     }
@@ -218,8 +215,7 @@ async function request<T>(
       };
     }
 
-    // throw new ApiError(message, response.status, responseBody);
-    console.log(message, "message");
+    throw new ApiError(message, response.status, responseBody);
   }
 
   return {
