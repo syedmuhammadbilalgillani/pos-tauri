@@ -15,7 +15,7 @@ export default function DashboardPage() {
   if (!session || !user) return null;
 
   return (
-    <div>
+    <div className="p-4 max-w-full mx-auto overflow-hidden">
       {JSON.stringify(session, null, 2)}
       <button onClick={() => logout()}>Logout</button>
     </div>

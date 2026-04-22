@@ -1,3 +1,5 @@
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Metadata } from "next";
 import {
@@ -8,8 +10,6 @@ import {
 } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
-import { loadAuthSession } from "@/lib/tan-stack/auth";
-
 const playfairDisplayHeading = Playfair_Display({
   subsets: ["latin"],
   variable: "--font-heading",
@@ -37,7 +37,6 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = loadAuthSession();
   return (
     <html
       lang="en"
@@ -52,7 +51,10 @@ export default function RootLayout({
       )}
     >
       <body className="min-h-full flex flex-col">
-        <Providers>{children}</Providers>
+        <Toaster />
+        <TooltipProvider>
+          <Providers>{children}</Providers>
+        </TooltipProvider>
       </body>
     </html>
   );
