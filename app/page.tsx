@@ -23,7 +23,6 @@ export default function LoginPage() {
   }, []);
 
   const message = searchParams.get("message");
-  const activeLocationId = loadAuthSession();
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md">
@@ -47,7 +46,7 @@ export default function LoginPage() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          {JSON.stringify(activeLocationId, null, 2)}
+          {/* {JSON.stringify(activeLocationId, null, 2)} */}
           <Suspense
             fallback={
               <p className="text-center text-sm text-muted-foreground">
@@ -55,9 +54,9 @@ export default function LoginPage() {
               </p>
             }
           >
-            <Link href="/platform-admin/login">Register</Link>
+            {/* <Link href="/platform-admin/login">Register</Link> */}
             <LoginForm onError={setError} />
-            <LoginFormFooterLinks />
+            {/* <LoginFormFooterLinks /> */}
           </Suspense>
         </CardContent>
       </Card>

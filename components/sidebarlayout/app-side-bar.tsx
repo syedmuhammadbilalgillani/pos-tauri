@@ -26,7 +26,7 @@ function AppSidebar() {
     })),
   );
   return (
-    <Sidebar>
+    <Sidebar variant="floating" collapsible="icon">
       <SidebarHeader>
         <SidebarHead />
       </SidebarHeader>

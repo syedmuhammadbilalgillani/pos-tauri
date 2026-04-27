@@ -16,6 +16,7 @@ import {
 } from "../ui/sidebar";
 // import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { useAuthSession, useLogoutMutation } from "@/lib/tan-stack/auth";
 
 // Re-export navigation components for convenience
 export { NavMain } from "./nav-main";
@@ -36,11 +37,16 @@ export const SidebarFooterMenu = () => {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   // const { data: session } = useSession();
+  const { data: session, isPending } = useAuthSession();
+
+  const { mutate: logout } = useLogoutMutation();
+  if (isPending) return null;
 
   const handleLogout = async () => {
     setIsLoading(true);
     // await signOut({ redirect: false });
-    router.push("/admin/login");
+    logout();
+    router.push("/");
     router.refresh();
     setIsLoading(false);
   };
@@ -57,7 +63,7 @@ export const SidebarFooterMenu = () => {
             <DropdownMenuTrigger asChild>
               <SidebarMenuButton className="text-nowrap">
                 <User2 />
-                {/* {userName} */}
+                {session?.user?.name || session?.user?.email || "User"}
                 <ChevronUp className="ml-auto" />
               </SidebarMenuButton>
             </DropdownMenuTrigger>

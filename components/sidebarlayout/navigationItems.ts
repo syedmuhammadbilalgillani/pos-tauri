@@ -1,4 +1,14 @@
-import { Building, LayoutDashboard, Users } from "lucide-react";
+import {
+  Building,
+  CreditCard,
+  LayoutDashboard,
+  Receipt,
+  ScreenShare,
+  ScreenShareIcon,
+  ScreenShareOff,
+  Terminal,
+  Users,
+} from "lucide-react";
 import type { NavConfigGroup } from "./nav-types";
 
 export const navigation: NavConfigGroup[] = [
@@ -19,21 +29,27 @@ export const navigation: NavConfigGroup[] = [
         isActive: false,
       },
       {
-        title: "Users",
-        url: "/platform-admin/platform-users",
-        icon: Users,
-        isActive: false,
-      },
-      {
         title: "KDS",
         url: "/t/kds",
-        icon: Building,
+        icon: ScreenShareIcon,
         isActive: false,
       },
       {
         title: "FOH",
         url: "/t/foh",
-        icon: Building,
+        icon: ScreenShare,
+        isActive: false,
+      },
+      {
+        title: "POS",
+        url: "/t/pos",
+        icon: CreditCard,
+        isActive: false,
+      },
+      {
+        title: "Orders",
+        url: "/t/orders",
+        icon: Receipt,
         isActive: false,
       },
     ],

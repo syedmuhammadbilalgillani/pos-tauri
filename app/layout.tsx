@@ -10,6 +10,7 @@ import {
 } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import ThemeProvider from "@/components/sidebarlayout/ThemeProvider";
 const playfairDisplayHeading = Playfair_Display({
   subsets: ["latin"],
   variable: "--font-heading",
@@ -55,10 +56,12 @@ export default function RootLayout({
         suppressContentEditableWarning
         className="min-h-full flex flex-col"
       >
-        <Toaster />
-        <TooltipProvider>
-          <Providers>{children}</Providers>
-        </TooltipProvider>
+        <ThemeProvider>
+          <Toaster />
+          <TooltipProvider>
+            <Providers>{children}</Providers>
+          </TooltipProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
