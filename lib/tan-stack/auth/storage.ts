@@ -1,6 +1,7 @@
 import type { AuthSession } from "@/types";
 import { isTauri } from "./runtime";
-
+import { PermissionMap } from "@/lib/permissions/types";
+// import Cookies from "js-cookie";
 const STORAGE_KEY = "pos-auth-session";
 const STORE_FILE = "pos-auth.json";
 
@@ -90,15 +91,41 @@ export async function clearAuthSession(): Promise<void> {
 }
 
 export async function updateSessionTokens(
-  accessToken: string,
-  refreshToken: string,
+  accessToken:          string,
+  refreshToken:         string,
+  permissions?:         PermissionMap,
+  permissionsUpdatedAt?: number,
 ): Promise<void> {
   const current = loadAuthSession();
   if (!current) return;
+
   await saveAuthSession({
     ...current,
     accessToken,
     refreshToken,
     updatedAt: Date.now(),
+    user: {
+      ...current.user,
+      // Only update permissions if server sent fresh ones
+      ...(permissions !== undefined && {
+        permissions,
+        permissionsUpdatedAt: permissionsUpdatedAt ?? Date.now(),
+      }),
+    },
+  });
+}
+// tauri-pos/lib/tan-stack/auth/storage.ts (proposed addition)
+
+export async function setActiveLocationId(locationId: string): Promise<void> {
+  const current = loadAuthSession();
+  if (!current) return;
+
+  await saveAuthSession({
+    ...current,
+    updatedAt: Date.now(),
+    user: {
+      ...current.user,
+      activeLocationId: locationId,
+    },
   });
 }

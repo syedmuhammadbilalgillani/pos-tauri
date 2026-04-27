@@ -1,21 +1,10 @@
 "use client";
 
-import {
-  DataTable,
-  type DataTableColumn,
-} from "@/components/tables/data-table";
-import { Button } from "@/components/ui/button";
-import {
-  useDeactivateBrandMutation,
-  useDeleteBrandMutation,
-  type Brand,
-} from "@/lib/tan-stack/brands";
-import { useRouter } from "next/navigation";
-import * as React from "react";
+import { type Brand } from "@/lib/tan-stack/brands";
+import BrandCard from "./brand-card";
 
 export function BrandsListTable({
   data,
-  isLoading,
   q,
   setQ,
   status,
@@ -28,94 +17,94 @@ export function BrandsListTable({
   status: "all" | "active" | "inactive";
   setStatus: (status: "all" | "active" | "inactive") => void;
 }) {
-  const router = useRouter();
+  // const router = useRouter();
 
-  const { mutate: deactivate, isPending: isDeactivating } =
-    useDeactivateBrandMutation();
-  const { mutate: deleteBrand, isPending: isDeleting } =
-    useDeleteBrandMutation();
-  const columns = React.useMemo<DataTableColumn<Brand>[]>(
-    () => [
-      { id: "name", header: "Name", accessor: (r) => r.name, priority: 1 },
-      {
-        id: "slug",
-        header: "Slug",
-        accessor: (r) => r.slug,
-        hideBelow: "md",
-        priority: 3,
-      },
-      {
-        id: "isActive",
-        header: "Status",
-        type: "status",
-        accessor: (r) => (r.isActive ? "active" : "inactive"),
-        statusLabelMap: { active: "Active", inactive: "Inactive" },
-        statusVariantMap: { active: "default", inactive: "secondary" },
-        priority: 2,
-      },
-      {
-        id: "createdAt",
-        header: "Created",
-        type: "datetime",
-        accessor: (r) => r.createdAt,
-        hideBelow: "lg",
-        priority: 5,
-      },
-      {
-        id: "actions",
-        header: "",
-        type: "actions",
-        priority: 0,
-        cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                router.push(`/t/brands/id?id=${row.id}`);
-              }}
-            >
-              View
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                router.push(`/t/brands/id/edit?id=${row.id}`);
-              }}
-            >
-              Edit
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={isDeactivating || !row.isActive}
-              onClick={(e) => {
-                e.stopPropagation();
-                deactivate(row.id);
-              }}
-            >
-              Deactivate
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={isDeleting}
-              onClick={(e) => {
-                e.stopPropagation();
-                deleteBrand(row.id);
-              }}
-            >
-              Delete
-            </Button>
-          </div>
-        ),
-      },
-    ],
-    [deactivate, isDeactivating, router],
-  );
+  // const { mutate: deactivate, isPending: isDeactivating } =
+  //   useDeactivateBrandMutation();
+  // const { mutate: deleteBrand, isPending: isDeleting } =
+  //   useDeleteBrandMutation();
+  // const columns = React.useMemo<DataTableColumn<Brand>[]>(
+  //   () => [
+  //     { id: "name", header: "Name", accessor: (r) => r.name, priority: 1 },
+  //     {
+  //       id: "slug",
+  //       header: "Slug",
+  //       accessor: (r) => r.slug,
+  //       hideBelow: "md",
+  //       priority: 3,
+  //     },
+  //     {
+  //       id: "isActive",
+  //       header: "Status",
+  //       type: "status",
+  //       accessor: (r) => (r.isActive ? "active" : "inactive"),
+  //       statusLabelMap: { active: "Active", inactive: "Inactive" },
+  //       statusVariantMap: { active: "default", inactive: "secondary" },
+  //       priority: 2,
+  //     },
+  //     {
+  //       id: "createdAt",
+  //       header: "Created",
+  //       type: "datetime",
+  //       accessor: (r) => r.createdAt,
+  //       hideBelow: "lg",
+  //       priority: 5,
+  //     },
+  //     {
+  //       id: "actions",
+  //       header: "",
+  //       type: "actions",
+  //       priority: 0,
+  //       cell: ({ row }) => (
+  //         <div className="flex justify-end gap-2">
+  //           <Button
+  //             variant="outline"
+  //             size="sm"
+  //             onClick={(e) => {
+  //               e.stopPropagation();
+  //               router.push(`/t/brands/id?id=${row.id}`);
+  //             }}
+  //           >
+  //             View
+  //           </Button>
+  //           <Button
+  //             variant="outline"
+  //             size="sm"
+  //             onClick={(e) => {
+  //               e.stopPropagation();
+  //               router.push(`/t/brands/id/edit?id=${row.id}`);
+  //             }}
+  //           >
+  //             Edit
+  //           </Button>
+  //           <Button
+  //             variant="destructive"
+  //             size="sm"
+  //             disabled={isDeactivating || !row.isActive}
+  //             onClick={(e) => {
+  //               e.stopPropagation();
+  //               deactivate(row.id);
+  //             }}
+  //           >
+  //             Deactivate
+  //           </Button>
+  //           <Button
+  //             variant="destructive"
+  //             size="sm"
+  //             disabled={isDeleting}
+  //             onClick={(e) => {
+  //               e.stopPropagation();
+  //               deleteBrand(row.id);
+  //             }}
+  //           >
+  //             Delete
+  //           </Button>
+  //         </div>
+  //       ),
+  //     },
+  //   ],
+  //   [deactivate, isDeactivating, router, deleteBrand, isDeleting],
+  // );
 
   return (
     <div className="rounded-xl border bg-background p-4 space-y-3">
@@ -123,7 +112,7 @@ export function BrandsListTable({
         <div className="space-y-1">
           <div className="text-base font-semibold">All brands</div>
           <div className="text-sm text-muted-foreground">
-            Use search to quickly find a brand. Click a row to view details.
+            Use search to quickly find a brand.
           </div>
         </div>
 
@@ -146,14 +135,19 @@ export function BrandsListTable({
         </div>
       </div>
 
-      <DataTable<Brand>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {data.map((brand) => (
+          <BrandCard key={brand.id} brand={brand} />
+        ))}
+      </div>
+      {/* <DataTable<Brand>
         data={data}
         columns={columns}
         isLoading={isLoading}
         getRowId={(r) => r.id}
         onRowClick={(row) => router.push(`/t/brands/id?id=${row.id}`)}
         emptyText="No brands yet. Create your first brand."
-      />
+      /> */}
     </div>
   );
 }

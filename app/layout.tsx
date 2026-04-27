@@ -50,7 +50,11 @@ export default function RootLayout({
         playfairDisplayHeading.variable,
       )}
     >
-      <body className="min-h-full flex flex-col">
+      <body
+        suppressHydrationWarning
+        suppressContentEditableWarning
+        className="min-h-full flex flex-col"
+      >
         <Toaster />
         <TooltipProvider>
           <Providers>{children}</Providers>

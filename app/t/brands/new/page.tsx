@@ -10,7 +10,7 @@ export default function NewBrandPage() {
   const m = useCreateBrandMutation();
 
   return (
-    <div className="p-6 md:p-10 space-y-6 max-w-3xl">
+    <div className="p-6 md:p-10 space-y-6 max-w-3xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <div className="text-2xl font-semibold">New brand</div>

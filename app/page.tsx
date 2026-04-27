@@ -10,6 +10,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { loadAuthSession } from "@/lib/tan-stack/auth";
+import Link from "next/link";
 import * as React from "react";
 import { Suspense } from "react";
 
@@ -21,8 +23,7 @@ export default function LoginPage() {
   }, []);
 
   const message = searchParams.get("message");
- 
-
+  const activeLocationId = loadAuthSession();
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md">
@@ -46,7 +47,7 @@ export default function LoginPage() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-
+          {JSON.stringify(activeLocationId, null, 2)}
           <Suspense
             fallback={
               <p className="text-center text-sm text-muted-foreground">
@@ -54,6 +55,7 @@ export default function LoginPage() {
               </p>
             }
           >
+            <Link href="/platform-admin/login">Register</Link>
             <LoginForm onError={setError} />
             <LoginFormFooterLinks />
           </Suspense>

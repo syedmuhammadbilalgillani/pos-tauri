@@ -63,7 +63,7 @@ export function BrandForm(props: {
             <button
               type="button"
               onClick={onCancel}
-              className="ml-3 text-sm text-muted-foreground hover:text-foreground"
+              className="ml-3 text-sm text-muted-foreground hover:text-foreground mr-5"
             >
               Cancel
             </button>

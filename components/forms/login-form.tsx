@@ -7,10 +7,13 @@ import {
 } from "@/components/forms/form-builder";
 import { useLoginMutation } from "@/lib/tan-stack/auth";
 import { LoginInput } from "@/lib/validations/auth";
+import { LocationData } from "@/types";
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
+import { LocationSelectModal } from "../location-select-modal";
+import { setActiveLocationId } from "@/lib/tan-stack/auth/storage";
 
 type LoginFormValues = LoginInput;
 
@@ -64,6 +67,8 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ onSuccess, onError }: LoginFormProps) {
+  const [open, setOpen] = React.useState(false);
+  const [locations, setLocations] = React.useState<LocationData[]>([]);
   const router = useRouter();
   const {
     mutateAsync: login,
@@ -73,30 +78,44 @@ export function LoginForm({ onSuccess, onError }: LoginFormProps) {
   console.log(isSuccess, "+++++++++++++ isSuccess");
   const handleSubmit = async (values: LoginFormValues) => {
     try {
-      await login({
-        email: values.email,
-        password: values.password,
-        rememberMe: values.rememberMe,
-      });
-      onSuccess?.(undefined);
-      router.push("/t/dashboard");
+      const session = await login({ ...values });
+      const locs = session.user.locationData ?? [];
+      if (locs.length <= 1) {
+        // if 1, activeLocationId should already be set in loginRequest()
+        router.push("/t/dashboard");
+        return;
+      }
+      setLocations(locs);
+      setOpen(true);
     } catch (e) {
       onError?.(e instanceof Error ? e.message : "Login failed");
     }
   };
+  const handleSelect = async (locationId: string) => {
+    await setActiveLocationId(locationId);
+    setOpen(false);
+    router.push("/t/dashboard");
+  };
 
   return (
-    <DynamicForm<LoginInput>
-      fields={loginFields}
-      defaultValues={{
-        email: "",
-        password: "",
-        rememberMe: false,
-      }}
-      submitLabel="Sign In"
-      isSubmitting={isLoading}
-      onSubmit={handleSubmit}
-    />
+    <>
+      <DynamicForm<LoginInput>
+        fields={loginFields}
+        defaultValues={{
+          email: "",
+          password: "",
+          rememberMe: false,
+        }}
+        submitLabel="Sign In"
+        isSubmitting={isLoading}
+        onSubmit={handleSubmit}
+      />
+      <LocationSelectModal
+        open={open}
+        locations={locations}
+        onSelect={handleSelect}
+      />
+    </>
   );
 }
 

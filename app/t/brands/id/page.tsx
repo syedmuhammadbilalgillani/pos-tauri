@@ -2,10 +2,12 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { usePermissions } from "@/lib/permissions/usePermissions";
 import { useBrandByIdQuery, useDeactivateBrandMutation } from "@/lib/tan-stack/brands";
 import { useRouter, useSearchParams } from "next/navigation";
 
 export default function BrandDetailPage() {
+  const { can } = usePermissions();
   const router = useRouter();
   const params = useSearchParams();
   const id = params.get("id");
@@ -17,7 +19,6 @@ export default function BrandDetailPage() {
   if (!q.data) return null;
 
   const b = q.data;
-
   return (
     <div className="p-6 md:p-10 space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -37,9 +38,11 @@ export default function BrandDetailPage() {
           <Button variant="outline" onClick={() => router.push("/t/brands")}>
             Back
           </Button>
-          <Button variant="outline" onClick={() => router.push(`/t/brands/id/edit?id=${b.id}`)}>
+          {can('settings', 'edit') && (
+            <Button variant="outline" onClick={() => router.push(`/t/brands/id/edit?id=${b.id}`)}>
             Edit
           </Button>
+          )}
           <Button
             variant="destructive"
             disabled={isDeactivating || !b.isActive}

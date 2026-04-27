@@ -128,9 +128,15 @@ async function tryRefreshSession(): Promise<boolean> {
   const session = loadAuthSession();
   if (!session?.refreshToken) return false;
   try {
-    const { refreshRequest } = await import("@/lib/tan-stack/auth/api");
+    const { refreshRequest } = await import('@/lib/tan-stack/auth/api');
     const tokens = await refreshRequest(session.refreshToken);
-    await updateSessionTokens(tokens.accessToken, tokens.refreshToken);
+    // Pass permissions from refresh response
+    await updateSessionTokens(
+      tokens.accessToken,
+      tokens.refreshToken,
+      tokens.permissions,          // ← NEW
+      tokens.permissionsUpdatedAt, // ← NEW
+    );
     syncAuthQueryAfterTokenUpdate();
     return true;
   } catch {
@@ -139,7 +145,6 @@ async function tryRefreshSession(): Promise<boolean> {
     return false;
   }
 }
-
 function logApiError(args: {
   requestUrl: string;
   method: string;

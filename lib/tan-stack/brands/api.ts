@@ -37,8 +37,9 @@ export type CreateBrandInput = {
 
 export type UpdateBrandInput = Partial<CreateBrandInput>;
 
-function requireTenantId(): string {
+export function requireTenantId(): string {
   const tenantId = loadAuthSession()?.user?.tenantId;
+  
   if (!tenantId) throw new Error("Missing tenantId in auth session");
   return tenantId;
 }
