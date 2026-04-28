@@ -10,6 +10,8 @@ import { queryClient } from "@/lib/tan-stack/query-client";
 type ApiHeadersOptions = {
   token?: string | null;
   headers?: HeadersInit;
+  tenantId?: string;
+  locationId?: string;
 };
 
 export function buildApiHeaders(options: ApiHeadersOptions = {}): Headers {
@@ -21,6 +23,8 @@ export function buildApiHeaders(options: ApiHeadersOptions = {}): Headers {
   if (!finalHeaders.has("Content-Type"))
     finalHeaders.set("Content-Type", "application/json");
 
+  if (options.tenantId) finalHeaders.set("x-tenant-id", options.tenantId);
+  if (options.locationId) finalHeaders.set("x-location-id", options.locationId);
   if (token) finalHeaders.set("Authorization", `Bearer ${token}`);
 
   return finalHeaders;
@@ -128,13 +132,13 @@ async function tryRefreshSession(): Promise<boolean> {
   const session = loadAuthSession();
   if (!session?.refreshToken) return false;
   try {
-    const { refreshRequest } = await import('@/lib/tan-stack/auth/api');
+    const { refreshRequest } = await import("@/lib/tan-stack/auth/api");
     const tokens = await refreshRequest(session.refreshToken);
     // Pass permissions from refresh response
     await updateSessionTokens(
       tokens.accessToken,
       tokens.refreshToken,
-      tokens.permissions,          // ← NEW
+      tokens.permissions, // ← NEW
       tokens.permissionsUpdatedAt, // ← NEW
     );
     syncAuthQueryAfterTokenUpdate();
@@ -180,8 +184,17 @@ async function request<T>(
   const requestUrl = withQueryParams(resolveUrl(url, baseURL), params);
 
   const doFetch = async () => {
-    const effectiveToken = token ?? loadAuthSession()?.accessToken ?? null;
-    const finalHeaders = buildApiHeaders({ token: effectiveToken, headers });
+    const session = loadAuthSession();
+
+    const effectiveToken = token ?? session?.accessToken ?? null;
+    const tenantId = session?.user?.tenantId;
+    const locationId = session?.user?.activeLocationId;
+    const finalHeaders = buildApiHeaders({
+      token: effectiveToken,
+      headers,
+      tenantId: tenantId ?? undefined,
+      locationId: locationId ?? undefined,
+    });
     const requestBody = normalizeBodyAndHeaders(body, finalHeaders);
     const response = await fetch(requestUrl, {
       ...rest,

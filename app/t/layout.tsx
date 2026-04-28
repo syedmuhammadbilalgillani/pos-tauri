@@ -44,7 +44,7 @@ export default function TLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <AppSidebar />
       <SidebarInset className="p-4">
         <SidebarTrigger />

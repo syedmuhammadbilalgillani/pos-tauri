@@ -6,6 +6,7 @@ import { useRealtimeOrders } from "@/hooks/useRealtimeOrders";
 import type { KdsOrderStatus, OrderWithItems } from "@/types";
 import { fetchKdsOrders } from "@/lib/kds";
 import { OrderColumn } from "@/components/OrderColumn";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const BOARD_STATUSES: KdsOrderStatus[] = [
   "pending",
@@ -77,14 +78,14 @@ export default function KdsPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-zinc-50 dark:bg-black">
+    <div className="flex-1 flex flex-col bg-background max-h-dvh overflow-y-hidden">
       <div className="mx-auto w-full max-w-7xl px-4 py-4">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-xl font-semibold tracking-tight">
               Kitchen Display (KDS)
             </div>
-            <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            {/* <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
               Realtime via Socket.IO; REST refetch on reconnect.
             </div>
 
@@ -100,7 +101,7 @@ export default function KdsPage() {
                   {connectionError}
                 </span>
               ) : null}
-            </div>
+            </div> */}
           </div>
 
           <div className="flex items-center gap-2">
@@ -128,7 +129,7 @@ export default function KdsPage() {
         ) : null}
       </div>
 
-      <div className="flex-1 overflow-x-auto">
+      <ScrollArea className="h-[82dvh]">
         <div className="mx-auto max-w-7xl px-2 pb-6">
           <div className="flex gap-4">
             <OrderColumn title="Pending" status="pending" orders={pending} />
@@ -145,7 +146,7 @@ export default function KdsPage() {
             <OrderColumn title="Ready" status="ready" orders={ready} />
           </div>
         </div>
-      </div>
+      </ScrollArea>
     </div>
   );
 }

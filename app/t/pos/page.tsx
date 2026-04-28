@@ -1,9 +1,1194 @@
-import React from 'react'
+"use client";
 
-const POSPage = () => {
-  return (
-    <div>POSPage</div>
-  )
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetFooter,
+  SheetTitle,
+} from "@/components/ui/sheet";
+
+import type { POSCategory, PosTicketLine } from "@/types";
+
+import {
+  useGetMenuCategoriesQuery,
+  useGetMenuItemsQuery,
+  useMyPosTicketQuery,
+  useQuotePosTicketQuery,
+  useListPosTicketsQuery,
+} from "@/lib/tan-stack/pos/query";
+
+import {
+  useCreatePosTicketMutation,
+  useSetPosTicketItemsMutation,
+  useHoldPosTicketMutation,
+  useConvertPosTicketMutation,
+  useAddPosPaymentByOrderIdMutation,
+  useRecallPosTicketByTokenMutation,
+  useApplyPosPromoMutation,
+  useRemovePosPromoMutation,
+  useUpdatePosTicketContextMutation,
+} from "@/lib/tan-stack/pos/mutation";
+
+import {
+  clearTicketToken,
+  loadTicketToken,
+  saveTicketToken,
+} from "@/lib/tan-stack/pos/ticket-token";
+
+type MenuItem = {
+  id: string;
+  sku?: string | null;
+  name?: string | null;
+  slug?: string | null;
+  description?: string | null;
+  basePrice?: string | number | null;
+};
+
+type MenuItemsQuery = {
+  data?: {
+    pages?: Array<{ data?: { items?: MenuItem[]; hasMore?: boolean; nextCursor?: string | null } }>;
+  };
+  isLoading: boolean;
+  isError: boolean;
+  isFetching: boolean;
+  hasNextPage?: boolean;
+  fetchNextPage?: () => Promise<unknown>;
+};
+
+function formatMoney(raw?: string | number | null) {
+  const n =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string"
+        ? Number.parseFloat(raw)
+        : 0;
+  if (!Number.isFinite(n)) return "0.00";
+  return n.toFixed(2);
 }
 
-export default POSPage
+export default function POSPage() {
+  // -------------------------
+  // Ticket token + order id
+  // -------------------------
+  const [ticketToken, setTicketToken] = useState<string | null>(() =>
+    loadTicketToken(),
+  );
+  const [orderId, setOrderId] = useState<string | null>(null);
+
+  // -------------------------
+  // Menu data
+  // -------------------------
+  const categoriesQ = useGetMenuCategoriesQuery();
+  const categories = useMemo<POSCategory[]>(
+    () => (categoriesQ?.data?.meta?.categories as POSCategory[]) ?? [],
+    [categoriesQ.data?.meta?.categories],
+  );
+  const menu = categoriesQ?.data?.meta?.menu;
+
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
+  const [search, setSearch] = useState("");
+  const activeCategoryId = selectedCategoryId || categories[0]?.id || "";
+
+  const [heldOpen, setHeldOpen] = useState(false);
+  const [discountOpen, setDiscountOpen] = useState(false);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [contextOpen, setContextOpen] = useState(false);
+  const [barcodeOpen, setBarcodeOpen] = useState(false);
+  const [lastScan, setLastScan] = useState<string | null>(null);
+  const [lastScanError, setLastScanError] = useState<string | null>(null);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [paymentMethodDraft, setPaymentMethodDraft] = useState<"cash" | "card">(
+    "cash",
+  );
+  const [paymentAmountDraft, setPaymentAmountDraft] = useState("");
+  const [paymentTipDraft, setPaymentTipDraft] = useState("");
+  const [uiError, setUiError] = useState<string | null>(null);
+
+  const [orderTypeDraft, setOrderTypeDraft] = useState<
+    "dine_in" | "takeaway" | "delivery" | "catering"
+  >("takeaway");
+  const [tableNumberDraft, setTableNumberDraft] = useState("");
+  const [customerNotesDraft, setCustomerNotesDraft] = useState("");
+  const [kitchenNotesDraft, setKitchenNotesDraft] = useState("");
+
+  const itemsQ = useGetMenuItemsQuery(
+    activeCategoryId,
+    menu?.id ?? "",
+  ) as unknown as MenuItemsQuery;
+  const items = useMemo<MenuItem[]>(() => {
+    const pages = itemsQ.data?.pages ?? [];
+    const out: MenuItem[] = [];
+    for (const p of pages) out.push(...(p.data?.items ?? []));
+    return out;
+  }, [itemsQ.data?.pages]);
+
+  const filteredItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((it) => {
+      return (
+        it.name?.toLowerCase().includes(q) ||
+        it.slug?.toLowerCase().includes(q) ||
+        it.description?.toLowerCase().includes(q)
+      );
+    });
+  }, [items, search]);
+
+  // -------------------------
+  // Ticket data
+  // -------------------------
+  const ticketQ = useMyPosTicketQuery(ticketToken);
+  const quoteQ = useQuotePosTicketQuery(ticketToken);
+  const heldTicketsQ = useListPosTicketsQuery({ status: "held", limit: 50 });
+
+  // Local cart (optimistic UI) — sync via PUT items
+  const [cartItems, setCartItems] = useState<PosTicketLine[]>([]);
+  const ticketUpdatedAt = ticketQ.data?.updatedAt;
+
+  useEffect(() => {
+    // When server ticket loads/changes, sync local cart
+    if (ticketQ.data?.cartItems) {
+      // eslint-disable-next-line
+      setCartItems(ticketQ.data.cartItems);
+    } else if (!ticketToken) {
+      setCartItems([]);
+    }
+  }, [ticketQ.data?.id, ticketQ.data?.cartItems, ticketToken]);
+
+  // Build item lookup for nicer cart rendering (best-effort)
+  const itemById = useMemo(() => {
+    const m = new Map<string, MenuItem>();
+    for (const it of items) m.set(it.id, it);
+    return m;
+  }, [items]);
+
+  const itemBySku = useMemo(() => {
+    const m = new Map<string, MenuItem>();
+    for (const it of items) {
+      const sku = it.sku?.trim();
+      if (sku) m.set(sku, it);
+    }
+    return m;
+  }, [items]);
+
+  // -------------------------
+  // Mutations
+  // -------------------------
+  const createTicketM = useCreatePosTicketMutation();
+
+  const setItemsM = useSetPosTicketItemsMutation(ticketToken ?? "");
+  const holdM = useHoldPosTicketMutation(ticketToken ?? "");
+  const convertM = useConvertPosTicketMutation(ticketToken ?? "");
+  const payByOrderIdM = useAddPosPaymentByOrderIdMutation();
+  const recallByTokenM = useRecallPosTicketByTokenMutation();
+  const applyPromoM = useApplyPosPromoMutation(ticketToken ?? "");
+  const removePromoM = useRemovePosPromoMutation(ticketToken ?? "");
+  const updateContextM = useUpdatePosTicketContextMutation(ticketToken ?? "");
+  
+  // -------------------------
+  // Helpers
+  // -------------------------
+  async function ensureTicket(): Promise<string> {
+    if (ticketToken) return ticketToken;
+
+    const t = await createTicketM.mutateAsync({ orderType: "takeaway" });
+    await saveTicketToken(t.sessionToken);
+    setTicketToken(t.sessionToken);
+    setOrderId(null);
+    return t.sessionToken;
+  }
+
+  async function syncCart(next: PosTicketLine[]) {
+    await ensureTicket();
+    const prev = cartItems;
+    setCartItems(next);
+
+    // server sync (idempotent)
+    if (!setItemsM) return;
+    try {
+      await setItemsM.mutateAsync({
+        items: next,
+        clientUpdatedAt: ticketUpdatedAt,
+      });
+    } catch {
+      setCartItems(prev);
+      setUiError("Failed to sync cart. Check backend connection and retry.");
+    }
+  }
+
+  function upsertLineAddOne(menuItemId: string) {
+    const existing = cartItems.find((l) => l.menuItemId === menuItemId);
+    if (!existing) {
+      return [...cartItems, { menuItemId, quantity: 1 }];
+    }
+    return cartItems.map((l) =>
+      l.menuItemId === menuItemId ? { ...l, quantity: l.quantity + 1 } : l,
+    );
+  }
+
+  const syncCartRef = useRef(syncCart);
+  const upsertRef = useRef(upsertLineAddOne);
+  const itemBySkuRef = useRef(itemBySku);
+
+  useEffect(() => {
+    syncCartRef.current = syncCart;
+    upsertRef.current = upsertLineAddOne;
+    itemBySkuRef.current = itemBySku;
+  });
+
+  // -------------------------
+  // Barcode scanning (keyboard-wedge)
+  // -------------------------
+  useEffect(() => {
+    let buffer = "";
+    let lastTs = 0;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName?.toLowerCase();
+      const isTypingTarget =
+        tag === "input" ||
+        tag === "textarea" ||
+        (el?.getAttribute?.("contenteditable") ?? "false") === "true";
+      if (isTypingTarget) return;
+
+      const now = Date.now();
+      if (now - lastTs > 200) buffer = "";
+      lastTs = now;
+
+      if (e.key === "Enter") {
+        const code = buffer.trim();
+        buffer = "";
+        if (!code) return;
+
+        setLastScan(code);
+        const it = itemBySkuRef.current.get(code);
+        if (!it) {
+          setLastScanError(`Unknown barcode/SKU: ${code}`);
+          setBarcodeOpen(true);
+          return;
+        }
+        setLastScanError(null);
+        void syncCartRef.current(upsertRef.current(it.id));
+        return;
+      }
+
+      if (e.key === "Escape") {
+        buffer = "";
+        return;
+      }
+
+      if (e.key.length === 1) buffer += e.key;
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  function inc(menuItemId: string) {
+    return cartItems.map((l) =>
+      l.menuItemId === menuItemId ? { ...l, quantity: l.quantity + 1 } : l,
+    );
+  }
+
+  function dec(menuItemId: string) {
+    return cartItems
+      .map((l) =>
+        l.menuItemId === menuItemId
+          ? { ...l, quantity: Math.max(1, l.quantity - 1) }
+          : l,
+      )
+      .filter((l) => l.quantity > 0);
+  }
+
+  function remove(menuItemId: string) {
+    return cartItems.filter((l) => l.menuItemId !== menuItemId);
+  }
+
+  const totals = quoteQ.data;
+  const subtotal = totals?.subtotal ?? "0.00";
+  const tax = totals?.taxAmount ?? "0.00";
+  const total = totals?.total ?? "0.00";
+
+  const busy =
+    createTicketM.isPending ||
+    Boolean(setItemsM?.isPending) ||
+    Boolean(convertM?.isPending) ||
+    Boolean(holdM?.isPending) ||
+    Boolean(payByOrderIdM.isPending);
+
+  // -------------------------
+  // Actions wired to UI
+  // -------------------------
+  async function onNewTicket() {
+    const t = await createTicketM.mutateAsync({ orderType: "takeaway" });
+    await saveTicketToken(t.sessionToken);
+    setTicketToken(t.sessionToken);
+    setOrderId(null);
+    setCartItems(t.cartItems ?? []);
+  }
+
+  async function onClearTicket() {
+    if (!ticketToken) return;
+    await syncCart([]);
+    setOrderId(null);
+  }
+
+  async function onHold() {
+    if (!ticketToken) return;
+    await holdM?.mutateAsync();
+  }
+
+  async function onSend() {
+    if (!ticketToken) return;
+    const res = await convertM?.mutateAsync({
+      clientTotal: total,
+      customerNotes: customerNotesDraft.trim() || undefined,
+      kitchenNotes: kitchenNotesDraft.trim() || undefined,
+      tableNumber:
+        orderTypeDraft === "dine_in"
+          ? tableNumberDraft.trim() || undefined
+          : undefined,
+    });
+    if (res?.id) setOrderId(res.id);
+  }
+
+  async function onOpenPayment() {
+    if (!ticketToken) return;
+    setPaymentAmountDraft(formatMoney(total));
+    setPaymentTipDraft("");
+    setPaymentMethodDraft("cash");
+    setPaymentOpen(true);
+  }
+
+  async function onLogoutTicketOnly() {
+    // optional helper if you want to drop the local ticket pointer
+    await clearTicketToken();
+    setTicketToken(null);
+    setOrderId(null);
+    setCartItems([]);
+  }
+
+  // -------------------------
+  // Render
+  // -------------------------
+  return (
+    <div className="h-dvh bg-background">
+      {uiError ? (
+        <div className="p-3">
+          <Alert variant="destructive">
+            <AlertTitle>POS error</AlertTitle>
+            <AlertDescription>{uiError}</AlertDescription>
+            <AlertAction>
+              <Button variant="outline" size="sm" onClick={() => setUiError(null)}>
+                Dismiss
+              </Button>
+            </AlertAction>
+          </Alert>
+        </div>
+      ) : null}
+
+      <Sheet open={heldOpen} onOpenChange={setHeldOpen}>
+        <SheetContent side="left" className="p-0">
+          <SheetHeader className="p-6 pb-3">
+            <SheetTitle>Held tickets</SheetTitle>
+            <SheetDescription>
+              Recall a held ticket to continue editing.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="px-6 pb-6">
+            {heldTicketsQ.isLoading ? (
+              <div className="space-y-2">
+                <div className="h-12 rounded-md bg-muted" />
+                <div className="h-12 rounded-md bg-muted" />
+                <div className="h-12 rounded-md bg-muted" />
+              </div>
+            ) : heldTicketsQ.isError ? (
+              <Card>
+                <CardContent className="p-4 text-sm text-muted-foreground">
+                  Failed to load held tickets.
+                </CardContent>
+              </Card>
+            ) : !heldTicketsQ.data?.items?.length ? (
+              <div className="text-sm text-muted-foreground">
+                No held tickets.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {heldTicketsQ.data.items.map((t) => (
+                  <button
+                    key={t.sessionToken}
+                    className="w-full rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors"
+                    onClick={async () => {
+                      await saveTicketToken(t.sessionToken);
+                      setTicketToken(t.sessionToken);
+                      setOrderId(null);
+                      setCartItems(t.cartItems ?? []);
+                      await recallByTokenM.mutateAsync(t.sessionToken);
+                      setHeldOpen(false);
+                    }}
+                    disabled={busy || recallByTokenM.isPending}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate">
+                          {t.orderType ?? "ticket"}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {t.sessionToken}
+                        </div>
+                      </div>
+                      <Badge variant="outline">{t.status}</Badge>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <SheetFooter className="p-6 pt-0">
+            <Button
+              variant="outline"
+              onClick={async () => {
+                await onLogoutTicketOnly();
+                setHeldOpen(false);
+              }}
+              disabled={busy}
+            >
+              Clear local ticket token
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={discountOpen} onOpenChange={setDiscountOpen}>
+        <SheetContent side="right" className="p-0">
+          <SheetHeader className="p-6 pb-3">
+            <SheetTitle>Discount</SheetTitle>
+            <SheetDescription>Apply or remove a promo code.</SheetDescription>
+          </SheetHeader>
+
+          <div className="px-6 pb-6 space-y-3">
+            <div className="text-xs text-muted-foreground">
+              Current promo:{" "}
+              <span className="font-medium text-foreground">
+                {ticketQ.data?.promoCode ?? "—"}
+              </span>
+            </div>
+
+            <Input
+              value={promoCodeInput}
+              onChange={(e) => setPromoCodeInput(e.target.value)}
+              placeholder="Enter promo code"
+              disabled={busy || !ticketToken}
+            />
+
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={async () => {
+                  if (!ticketToken) return;
+                  const code = promoCodeInput.trim();
+                  if (!code) return;
+                  await applyPromoM.mutateAsync(code);
+                  setPromoCodeInput("");
+                }}
+                disabled={busy || !ticketToken || applyPromoM.isPending}
+              >
+                Apply
+              </Button>
+              <Button
+                className="flex-1"
+                variant="outline"
+                onClick={async () => {
+                  if (!ticketToken) return;
+                  await removePromoM.mutateAsync();
+                }}
+                disabled={
+                  busy ||
+                  !ticketToken ||
+                  !ticketQ.data?.promoCode ||
+                  removePromoM.isPending
+                }
+              >
+                Remove
+              </Button>
+            </div>
+
+            {(applyPromoM.isError || removePromoM.isError) && (
+              <div className="text-xs text-destructive">
+                Failed to update promo code.
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={contextOpen} onOpenChange={setContextOpen}>
+        <SheetContent side="right" className="p-0">
+          <SheetHeader className="p-6 pb-3">
+            <SheetTitle>Ticket context</SheetTitle>
+            <SheetDescription>
+              Order type, table number, and notes for kitchen/customer.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="px-6 pb-6 space-y-4">
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">Order type</div>
+              <Select
+                value={orderTypeDraft}
+                onValueChange={(v) =>
+                  setOrderTypeDraft(
+                    v as "dine_in" | "takeaway" | "delivery" | "catering",
+                  )
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select order type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="takeaway">Takeaway</SelectItem>
+                  <SelectItem value="dine_in">Dine in</SelectItem>
+                  <SelectItem value="delivery">Delivery</SelectItem>
+                  <SelectItem value="catering">Catering</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">Table number</div>
+              <Input
+                value={tableNumberDraft}
+                onChange={(e) => setTableNumberDraft(e.target.value)}
+                placeholder="e.g. T12"
+                disabled={orderTypeDraft !== "dine_in"}
+              />
+              <div className="text-xs text-muted-foreground">
+                Table number will be stored on the order when you Send/Pay.
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">Customer notes</div>
+              <Textarea
+                value={customerNotesDraft}
+                onChange={(e) => setCustomerNotesDraft(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">Kitchen notes</div>
+              <Textarea
+                value={kitchenNotesDraft}
+                onChange={(e) => setKitchenNotesDraft(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={async () => {
+                  if (!ticketToken) return;
+                  await updateContextM.mutateAsync({
+                    orderType: orderTypeDraft,
+                    tableNumber:
+                      orderTypeDraft === "dine_in"
+                        ? tableNumberDraft.trim() || undefined
+                        : undefined,
+                  });
+                  setContextOpen(false);
+                }}
+                disabled={busy || !ticketToken || updateContextM.isPending}
+              >
+                Save
+              </Button>
+              <Button
+                className="flex-1"
+                variant="outline"
+                onClick={() => setContextOpen(false)}
+                disabled={busy}
+              >
+                Close
+              </Button>
+            </div>
+
+            {updateContextM.isError && (
+              <div className="text-xs text-destructive">
+                Failed to update ticket context.
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={barcodeOpen} onOpenChange={setBarcodeOpen}>
+        <SheetContent side="right" className="p-0">
+          <SheetHeader className="p-6 pb-3">
+            <SheetTitle>Barcode</SheetTitle>
+            <SheetDescription>
+              Scan an item barcode/SKU (keyboard scanner). Last scan shown below.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="px-6 pb-6 space-y-2">
+            <div className="text-xs text-muted-foreground">
+              Last scan:{" "}
+              <span className="font-medium text-foreground">
+                {lastScan ?? "—"}
+              </span>
+            </div>
+            {lastScanError ? (
+              <div className="text-xs text-destructive">{lastScanError}</div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                Tip: ensure focus is not inside an input field while scanning.
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={paymentOpen} onOpenChange={setPaymentOpen}>
+        <SheetContent side="right" className="p-0">
+          <SheetHeader className="p-6 pb-3">
+            <SheetTitle>Payment</SheetTitle>
+            <SheetDescription>Cash/Card + optional tip (single payment).</SheetDescription>
+          </SheetHeader>
+
+          <div className="px-6 pb-6 space-y-4">
+            <div className="text-xs text-muted-foreground">
+              Total due:{" "}
+              <span className="font-medium text-foreground">
+                {formatMoney(total)}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">Method</div>
+              <Select
+                value={paymentMethodDraft}
+                onValueChange={(v) => setPaymentMethodDraft(v as "cash" | "card")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="card">Card</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">Amount</div>
+                <Input
+                  value={paymentAmountDraft}
+                  onChange={(e) => setPaymentAmountDraft(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">Tip</div>
+                <Input
+                  value={paymentTipDraft}
+                  onChange={(e) => setPaymentTipDraft(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={async () => {
+                  if (!ticketToken) return;
+
+                  let oid = orderId;
+                  if (!oid) {
+                    const res = await convertM?.mutateAsync({
+                      clientTotal: total,
+                      customerNotes: customerNotesDraft.trim() || undefined,
+                      kitchenNotes: kitchenNotesDraft.trim() || undefined,
+                      tableNumber:
+                        orderTypeDraft === "dine_in"
+                          ? tableNumberDraft.trim() || undefined
+                          : undefined,
+                    });
+                    if (!res?.id) return;
+                    oid = res.id;
+                    setOrderId(oid);
+                  }
+
+                  await payByOrderIdM.mutateAsync({
+                    orderId: oid,
+                    paymentMethod: paymentMethodDraft,
+                    amount: paymentAmountDraft.trim() || "0.00",
+                    tipAmount: paymentTipDraft.trim() || undefined,
+                  });
+                  setPaymentOpen(false);
+                }}
+                disabled={busy || !ticketToken || payByOrderIdM.isPending}
+              >
+                Take payment
+              </Button>
+              <Button
+                className="flex-1"
+                variant="outline"
+                onClick={() => setPaymentOpen(false)}
+                disabled={busy}
+              >
+                Close
+              </Button>
+            </div>
+
+            {payByOrderIdM.isError && (
+              <div className="text-xs text-destructive">
+                Payment failed.
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Top bar */}
+      <div className="h-14 border-b flex items-center gap-3 px-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold leading-none truncate">
+            {menu?.name ?? "POS"}
+          </div>
+          <div className="text-xs text-muted-foreground leading-none truncate">
+            {categoriesQ.data?.meta?.location?.name ?? "—"}
+          </div>
+        </div>
+
+        <div className="flex-1" />
+
+        <div className="w-[420px] max-w-[55vw]">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search items…"
+          />
+        </div>
+
+        <Button
+          variant="secondary"
+          onClick={onNewTicket}
+          disabled={busy || createTicketM.isPending}
+        >
+          New Ticket
+        </Button>
+
+        <Button
+          variant="outline"
+          onClick={() => setHeldOpen(true)}
+          disabled={busy}
+          title="Recall held tickets"
+        >
+          Held
+        </Button>
+
+        <Button
+          variant="outline"
+          onClick={() => {
+            setOrderTypeDraft(
+              (ticketQ.data?.orderType as
+                | "dine_in"
+                | "takeaway"
+                | "delivery"
+                | "catering"
+                | undefined) ?? orderTypeDraft,
+            );
+            setContextOpen(true);
+          }}
+          disabled={busy}
+          title="Order type and notes"
+        >
+          Context
+        </Button>
+      </div>
+
+      {/* 3 columns */}
+      <div className="h-[calc(100dvh-3.5rem)] grid grid-cols-[280px_1fr_380px]">
+        {/* Categories */}
+        <aside className="border-r">
+          <ScrollArea className="h-full">
+            <div className="p-3 space-y-2">
+              <div className="text-xs font-medium text-muted-foreground px-1">
+                Categories
+              </div>
+
+              {categoriesQ.isLoading ? (
+                <div className="space-y-2">
+                  <div className="h-10 rounded-md bg-muted" />
+                  <div className="h-10 rounded-md bg-muted" />
+                  <div className="h-10 rounded-md bg-muted" />
+                </div>
+              ) : categoriesQ.isError ? (
+                <Card>
+                  <CardContent className="p-4 text-sm text-muted-foreground">
+                    Failed to load categories.
+                  </CardContent>
+                </Card>
+              ) : (
+                categories.map((c) => {
+                  const active = c.id === selectedCategoryId;
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => setSelectedCategoryId(c.id)}
+                      className={[
+                        "w-full rounded-lg px-3 py-2 text-left border transition-colors",
+                        active
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "hover:bg-muted/60",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium truncate">{c.name}</div>
+                        <Badge variant={active ? "secondary" : "outline"}>
+                          {c.itemCount}
+                        </Badge>
+                      </div>
+                      <div className="text-xs opacity-80 truncate">
+                        {c.slug}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </ScrollArea>
+        </aside>
+
+        {/* Items */}
+        <main className="min-w-0">
+          <ScrollArea className="h-full">
+            <div className="p-3">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">
+                    {categories.find((c) => c.id === activeCategoryId)?.name ??
+                      "Items"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {itemsQ.isFetching
+                      ? "Refreshing…"
+                      : `${filteredItems.length} items`}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBarcodeOpen(true)}
+                  >
+                    Barcode
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!ticketToken || busy}
+                    onClick={() => setDiscountOpen(true)}
+                  >
+                    Discount
+                  </Button>
+                </div>
+              </div>
+
+              {itemsQ.isLoading ? (
+                <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+                  {Array.from({ length: 12 }).map((_, i) => (
+                    <div key={i} className="h-28 rounded-xl bg-muted" />
+                  ))}
+                </div>
+              ) : itemsQ.isError ? (
+                <Card>
+                  <CardContent className="p-4 text-sm text-muted-foreground">
+                    Failed to load items.
+                  </CardContent>
+                </Card>
+              ) : filteredItems.length === 0 ? (
+                <div className="py-20 text-center text-muted-foreground">
+                  <div className="text-sm font-medium">No items found</div>
+                  <div className="text-xs mt-1">
+                    Try another category or clear search.
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+                  {filteredItems.map((it) => (
+                    <button
+                      key={it.id}
+                      onClick={async () => {
+                        const next = upsertLineAddOne(it.id);
+                        await syncCart(next);
+                      }}
+                      disabled={busy}
+                      className="group rounded-xl border p-3 text-left hover:bg-muted/50 transition-colors disabled:opacity-60"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-semibold truncate">
+                            {it.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                            {it.description}
+                          </div>
+                        </div>
+                        <div className="text-sm font-semibold tabular-nums">
+                          {Number(it.basePrice).toLocaleString()}
+                        </div>
+                      </div>
+
+                      <Separator className="my-2" />
+
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span className="truncate">{it.slug}</span>
+                        <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          Add
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {itemsQ.hasNextPage ? (
+                <div className="flex justify-center mt-4">
+                  <Button
+                    variant="secondary"
+                    disabled={busy || itemsQ.isFetching}
+                    onClick={async () => {
+                      if (itemsQ.fetchNextPage) await itemsQ.fetchNextPage();
+                    }}
+                  >
+                    Load more
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          </ScrollArea>
+        </main>
+
+        {/* Cart */}
+        <aside className="border-l">
+          <div className="h-full grid grid-rows-[auto_1fr_auto]">
+            <div className="p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold">
+                    Ticket{" "}
+                    {ticketToken ? (
+                      <span className="text-xs text-muted-foreground">
+                        • {ticketQ.data?.status ?? "—"}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {ticketQ.data?.orderType ?? "—"}{" "}
+                    {orderId ? `• Order: ${orderId}` : ""}
+                  </div>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onClearTicket}
+                  disabled={busy || !ticketToken}
+                >
+                  Clear
+                </Button>
+              </div>
+
+              <Separator className="mt-3" />
+
+              {quoteQ.data?.issues?.length ? (
+                <div className="mt-3 rounded-lg border p-2 text-xs">
+                  <div className="font-semibold mb-1">Issues</div>
+                  <ul className="space-y-1 text-muted-foreground">
+                    {quoteQ.data.issues.slice(0, 3).map((i, idx) => (
+                      <li key={`${i.code}-${idx}`}>
+                        {i.code}: {i.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+
+            <ScrollArea className="h-[55dvh]" scrollHideDelay={0}>
+              <div className="p-3 space-y-2">
+                {!ticketToken ? (
+                  <div className="text-xs text-muted-foreground text-center py-10">
+                    Click <span className="font-medium">New Ticket</span> to
+                    start.
+                  </div>
+                ) : ticketQ.isLoading ? (
+                  <div className="space-y-2">
+                    <div className="h-20 rounded-xl bg-muted" />
+                    <div className="h-20 rounded-xl bg-muted" />
+                  </div>
+                ) : cartItems.length === 0 ? (
+                  <div className="text-xs text-muted-foreground text-center py-10">
+                    Add items to start a ticket.
+                  </div>
+                ) : (
+                  cartItems.map((line) => {
+                    const it = itemById.get(line.menuItemId);
+                    const name = it?.name ?? line.menuItemId;
+                    const price = it?.basePrice ?? null;
+
+                    return (
+                      <Card key={line.menuItemId}>
+                        <CardContent className="px-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="font-medium truncate">{name}</div>
+                              {line.specialInstructions ? (
+                                <div className="text-xs text-muted-foreground line-clamp-2">
+                                  {line.specialInstructions}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-muted-foreground">
+                                  {it?.slug ?? ""}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-sm font-semibold tabular-nums">
+                              {price != null
+                                ? Number(price).toLocaleString()
+                                : "—"}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 mt-3">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () =>
+                                syncCart(dec(line.menuItemId))
+                              }
+                              disabled={busy}
+                            >
+                              -
+                            </Button>
+                            <div className="w-10 text-center text-sm tabular-nums">
+                              {line.quantity}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () =>
+                                syncCart(inc(line.menuItemId))
+                              }
+                              disabled={busy}
+                            >
+                              +
+                            </Button>
+                            <div className="flex-1" />
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={async () =>
+                                syncCart(remove(line.menuItemId))
+                              }
+                              disabled={busy}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })
+                )}
+              </div>
+              {/* <ScrollBar orientation="horizontal" /> */}
+            </ScrollArea>
+
+            <div className="p-3 border-t bg-background">
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="tabular-nums">
+                    {quoteQ.isFetching ? "…" : formatMoney(subtotal)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tax</span>
+                  <span className="tabular-nums">
+                    {quoteQ.isFetching ? "…" : formatMoney(tax)}
+                  </span>
+                </div>
+                <Separator className="my-2" />
+                <div className="flex justify-between font-semibold">
+                  <span>Total</span>
+                  <span className="tabular-nums">
+                    {quoteQ.isFetching ? "…" : formatMoney(total)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <Button
+                  variant="secondary"
+                  onClick={onHold}
+                  disabled={busy || !ticketToken}
+                >
+                  Hold
+                </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={onSend}
+                  disabled={busy || !ticketToken || cartItems.length === 0}
+                >
+                  Send
+                </Button>
+
+                <Button
+                  className="col-span-2"
+                  onClick={onOpenPayment}
+                  disabled={busy || !ticketToken || cartItems.length === 0}
+                >
+                  Pay
+                </Button>
+              </div>
+
+              {ticketQ.isError ? (
+                <div className="text-xs text-destructive mt-2">
+                  Failed to load ticket. Clear token and retry.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}

@@ -1,4 +1,5 @@
 import type { PermissionMap } from "@/lib/permissions/types";
+import { boolean } from "zod";
 
 // proposed (new) types (not currently in codebase)
 export type LocationData = {
@@ -91,8 +92,8 @@ export type OrderItem = {
   modifiers?: OrderItemModifier[];
   note?: string | null;
   itemNameSnapshot?: string | null;
-specialInstructions?: string | null;
-lineTotal?: number;
+  specialInstructions?: string | null;
+  lineTotal?: number;
 };
 
 export type OrderWithItems = {
@@ -105,7 +106,7 @@ export type OrderWithItems = {
   notes?: string | null;
   items: OrderItem[];
   orderSource?: string | null;
-customerNotes?: string | null;
+  customerNotes?: string | null;
 };
 
 export type CursorPageResponse<T> = {
@@ -146,3 +147,76 @@ export type SocketPrintJobUpdated = {
   printedAt?: string | null;
   lastError?: string | null;
 };
+export type POSCategory = {
+  id: string;
+  name: string;
+  image: string | null;
+  slug: string;
+  itemCount: number;
+}
+export type POSCategoryResponse = {
+  success: boolean;
+  meta: {
+    menu: {
+      id: string;
+      name: string;
+      isDefault: boolean;
+    };
+    categories: POSCategory[];
+
+    isMultiLocation: boolean;
+    location: {
+      id: string;
+      name: string;
+      slug: string;
+    };
+  };
+}
+
+
+export type PosTicketLine = {
+  menuItemId: string
+  quantity: number
+  specialInstructions?: string
+  modifiers?: { modifierId: string; quantity?: number }[]
+}
+export type PosTicket = {
+  id: string
+  sessionToken: string
+  orderType?: "dine_in" | "takeaway" | "delivery" | "catering"
+  promoCode?: string | null
+  cartItems: PosTicketLine[]
+  status: "active" | "held" | "converted" | string
+  updatedAt: string
+  createdAt: string
+}
+export type PosQuoteResponse = {
+  currency: string
+  subtotal: string
+  discountAmount: string
+  serviceCharge: string
+  taxAmount: string
+  deliveryFee: string
+  fbrPosCharge: string
+  srbTaxAmount: string
+  total: string
+  appliedDiscount: null | {
+    discountId: string
+    code: string
+    type: string
+    value: string
+  }
+  issues: Array<{ code: string; message: string; meta?: any }>
+}
+export type PosConvertResponse = {
+  id: string
+  orderNumber: string
+  status: string
+  paymentStatus: string
+  total: string
+  currency: string
+}
+export type PosPaymentResponse = {
+  payment: any
+  paymentStatus: "unpaid" | "partial" | "paid" | "failed" | string
+}
