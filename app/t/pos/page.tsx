@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -16,42 +18,54 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
-  SheetHeader,
   SheetFooter,
+  SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { POSCategory, PosTicketLine } from "@/types";
+import type {
+  POSCategory,
+  PosTicketLine,
+  PublicMenuItemDetail,
+  PublicModifierGroup,
+} from "@/types";
 
 import {
   useGetMenuCategoriesQuery,
   useGetMenuItemsQuery,
+  useListPosTicketsQuery,
+  useMenuItemDetailQuery,
   useMyPosTicketQuery,
   useQuotePosTicketQuery,
-  useListPosTicketsQuery,
 } from "@/lib/tan-stack/pos/query";
 
 import {
-  useCreatePosTicketMutation,
-  useSetPosTicketItemsMutation,
-  useHoldPosTicketMutation,
-  useConvertPosTicketMutation,
   useAddPosPaymentByOrderIdMutation,
-  useRecallPosTicketByTokenMutation,
   useApplyPosPromoMutation,
+  useConvertPosTicketMutation,
+  useCreatePosTicketMutation,
+  useHoldPosTicketMutation,
+  useRecallPosTicketByTokenMutation,
   useRemovePosPromoMutation,
+  useSetPosTicketItemsMutation,
   useUpdatePosTicketContextMutation,
 } from "@/lib/tan-stack/pos/mutation";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { usePermissions } from "@/lib/permissions/usePermissions";
 import {
   clearTicketToken,
   loadTicketToken,
   saveTicketToken,
 } from "@/lib/tan-stack/pos/ticket-token";
+import { Plus } from "lucide-react";
 
 type MenuItem = {
   id: string;
@@ -59,12 +73,19 @@ type MenuItem = {
   name?: string | null;
   slug?: string | null;
   description?: string | null;
+  imageUrl?: string | null;
   basePrice?: string | number | null;
 };
 
 type MenuItemsQuery = {
   data?: {
-    pages?: Array<{ data?: { items?: MenuItem[]; hasMore?: boolean; nextCursor?: string | null } }>;
+    pages?: Array<{
+      data?: {
+        items?: MenuItem[];
+        hasMore?: boolean;
+        nextCursor?: string | null;
+      };
+    }>;
   };
   isLoading: boolean;
   isError: boolean;
@@ -128,10 +149,88 @@ export default function POSPage() {
   const [tableNumberDraft, setTableNumberDraft] = useState("");
   const [customerNotesDraft, setCustomerNotesDraft] = useState("");
   const [kitchenNotesDraft, setKitchenNotesDraft] = useState("");
+  const { can } = usePermissions();
+  const canManagePos = can("pos", "manage");
+
+  // -------------------------
+  // Item customization (modifier groups)
+  // -------------------------
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [customizeSlug, setCustomizeSlug] = useState<string | null>(null);
+  const [customizeIndex, setCustomizeIndex] = useState<number | null>(null); // edit existing line when not null
+  const [selectedModsByGroup, setSelectedModsByGroup] = useState<
+    Record<string, string[]>
+  >({});
+  const [customizeError, setCustomizeError] = useState<string | null>(null);
+
+  const itemDetailQ = useMenuItemDetailQuery(customizeSlug, canManagePos);
+  const itemDetail = (
+    itemDetailQ.data as
+      | { success: boolean; data: PublicMenuItemDetail }
+      | undefined
+  )?.data;
+
+  // If we entered edit mode with a flat list (from a cart line), remap it to groupIds once detail loads.
+  useEffect(() => {
+    if (!itemDetail?.modifierGroups?.length) return;
+    if (!selectedModsByGroup["__flat__"]?.length) return;
+    const flat = selectedModsByGroup["__flat__"];
+    const next: Record<string, string[]> = {};
+    for (const g of itemDetail.modifierGroups) {
+      const allowed = new Set(g.modifiers.map((m) => m.id));
+      const picked = flat.filter((id) => allowed.has(id));
+      if (picked.length) next[g.id] = picked;
+    }
+    // eslint-disable-next-line
+    setSelectedModsByGroup(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemDetail?.id]);
+
+  function resetCustomization() {
+    setSelectedModsByGroup({});
+    setCustomizeError(null);
+  }
+
+  function validateGroups(groups: PublicModifierGroup[] | undefined) {
+    if (!groups?.length) return { ok: true as const };
+    for (const g of groups) {
+      const selected = selectedModsByGroup[g.id] ?? [];
+      const min = Math.max(0, g.minSelections ?? 0);
+      const max = g.maxSelections ?? null;
+      const requiredMin = g.isRequired ? Math.max(1, min) : min;
+
+      if (selected.length < requiredMin) {
+        return {
+          ok: false as const,
+          message: `Select at least ${requiredMin} for "${g.name}"`,
+        };
+      }
+      if (max != null && selected.length > max) {
+        return {
+          ok: false as const,
+          message: `Select at most ${max} for "${g.name}"`,
+        };
+      }
+      if (g.selectionType === "exactly" && selected.length !== min) {
+        return {
+          ok: false as const,
+          message: `Select exactly ${min} for "${g.name}"`,
+        };
+      }
+      if (g.selectionType === "single" && selected.length > 1) {
+        return {
+          ok: false as const,
+          message: `"${g.name}" allows 1 selection`,
+        };
+      }
+    }
+    return { ok: true as const };
+  }
 
   const itemsQ = useGetMenuItemsQuery(
     activeCategoryId,
     menu?.id ?? "",
+    canManagePos,
   ) as unknown as MenuItemsQuery;
   const items = useMemo<MenuItem[]>(() => {
     const pages = itemsQ.data?.pages ?? [];
@@ -151,12 +250,13 @@ export default function POSPage() {
       );
     });
   }, [items, search]);
+  console.log(filteredItems);
 
   // -------------------------
   // Ticket data
   // -------------------------
-  const ticketQ = useMyPosTicketQuery(ticketToken);
-  const quoteQ = useQuotePosTicketQuery(ticketToken);
+  const ticketQ = useMyPosTicketQuery(ticketToken, canManagePos);
+  const quoteQ = useQuotePosTicketQuery(ticketToken, canManagePos);
   const heldTicketsQ = useListPosTicketsQuery({ status: "held", limit: 50 });
 
   // Local cart (optimistic UI) — sync via PUT items
@@ -202,7 +302,7 @@ export default function POSPage() {
   const applyPromoM = useApplyPosPromoMutation(ticketToken ?? "");
   const removePromoM = useRemovePosPromoMutation(ticketToken ?? "");
   const updateContextM = useUpdatePosTicketContextMutation(ticketToken ?? "");
-  
+
   // -------------------------
   // Helpers
   // -------------------------
@@ -235,12 +335,17 @@ export default function POSPage() {
   }
 
   function upsertLineAddOne(menuItemId: string) {
-    const existing = cartItems.find((l) => l.menuItemId === menuItemId);
-    if (!existing) {
-      return [...cartItems, { menuItemId, quantity: 1 }];
-    }
-    return cartItems.map((l) =>
-      l.menuItemId === menuItemId ? { ...l, quantity: l.quantity + 1 } : l,
+    // Only merge into a plain line (no modifiers/notes). If there are multiple
+    // customized variants of the same item, keep them as separate lines.
+    const idx = cartItems.findIndex(
+      (l) =>
+        l.menuItemId === menuItemId &&
+        (!l.modifiers || l.modifiers.length === 0) &&
+        !l.specialInstructions,
+    );
+    if (idx === -1) return [...cartItems, { menuItemId, quantity: 1 }];
+    return cartItems.map((l, i) =>
+      i === idx ? { ...l, quantity: l.quantity + 1 } : l,
     );
   }
 
@@ -287,7 +392,15 @@ export default function POSPage() {
           return;
         }
         setLastScanError(null);
-        void syncCartRef.current(upsertRef.current(it.id));
+        // If item has modifiers, open customization; otherwise quick add.
+        if (it.slug) {
+          setCustomizeSlug(it.slug);
+          setCustomizeIndex(null);
+          resetCustomization();
+          setCustomizeOpen(true);
+        } else {
+          void syncCartRef.current(upsertRef.current(it.id));
+        }
         return;
       }
 
@@ -303,24 +416,20 @@ export default function POSPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  function inc(menuItemId: string) {
-    return cartItems.map((l) =>
-      l.menuItemId === menuItemId ? { ...l, quantity: l.quantity + 1 } : l,
+  function incAt(index: number) {
+    return cartItems.map((l, i) =>
+      i === index ? { ...l, quantity: l.quantity + 1 } : l,
     );
   }
 
-  function dec(menuItemId: string) {
-    return cartItems
-      .map((l) =>
-        l.menuItemId === menuItemId
-          ? { ...l, quantity: Math.max(1, l.quantity - 1) }
-          : l,
-      )
-      .filter((l) => l.quantity > 0);
+  function decAt(index: number) {
+    return cartItems.map((l, i) =>
+      i === index ? { ...l, quantity: Math.max(1, l.quantity - 1) } : l,
+    );
   }
 
-  function remove(menuItemId: string) {
-    return cartItems.filter((l) => l.menuItemId !== menuItemId);
+  function removeAt(index: number) {
+    return cartItems.filter((_, i) => i !== index);
   }
 
   const totals = quoteQ.data;
@@ -390,6 +499,10 @@ export default function POSPage() {
   // -------------------------
   // Render
   // -------------------------
+
+  if (!canManagePos) {
+    return <div>You do not have permission to view the POS.</div>;
+  }
   return (
     <div className="h-dvh bg-background">
       {uiError ? (
@@ -398,7 +511,11 @@ export default function POSPage() {
             <AlertTitle>POS error</AlertTitle>
             <AlertDescription>{uiError}</AlertDescription>
             <AlertAction>
-              <Button variant="outline" size="sm" onClick={() => setUiError(null)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setUiError(null)}
+              >
                 Dismiss
               </Button>
             </AlertAction>
@@ -589,7 +706,9 @@ export default function POSPage() {
             </div>
 
             <div className="space-y-2">
-              <div className="text-xs text-muted-foreground">Customer notes</div>
+              <div className="text-xs text-muted-foreground">
+                Customer notes
+              </div>
               <Textarea
                 value={customerNotesDraft}
                 onChange={(e) => setCustomerNotesDraft(e.target.value)}
@@ -648,7 +767,8 @@ export default function POSPage() {
           <SheetHeader className="p-6 pb-3">
             <SheetTitle>Barcode</SheetTitle>
             <SheetDescription>
-              Scan an item barcode/SKU (keyboard scanner). Last scan shown below.
+              Scan an item barcode/SKU (keyboard scanner). Last scan shown
+              below.
             </SheetDescription>
           </SheetHeader>
 
@@ -674,7 +794,9 @@ export default function POSPage() {
         <SheetContent side="right" className="p-0">
           <SheetHeader className="p-6 pb-3">
             <SheetTitle>Payment</SheetTitle>
-            <SheetDescription>Cash/Card + optional tip (single payment).</SheetDescription>
+            <SheetDescription>
+              Cash/Card + optional tip (single payment).
+            </SheetDescription>
           </SheetHeader>
 
           <div className="px-6 pb-6 space-y-4">
@@ -689,7 +811,9 @@ export default function POSPage() {
               <div className="text-xs text-muted-foreground">Method</div>
               <Select
                 value={paymentMethodDraft}
-                onValueChange={(v) => setPaymentMethodDraft(v as "cash" | "card")}
+                onValueChange={(v) =>
+                  setPaymentMethodDraft(v as "cash" | "card")
+                }
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -765,11 +889,214 @@ export default function POSPage() {
             </div>
 
             {payByOrderIdM.isError && (
-              <div className="text-xs text-destructive">
-                Payment failed.
-              </div>
+              <div className="text-xs text-destructive">Payment failed.</div>
             )}
           </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet
+        open={customizeOpen}
+        onOpenChange={(open) => {
+          setCustomizeOpen(open);
+          if (!open) {
+            setCustomizeSlug(null);
+            setCustomizeIndex(null);
+            resetCustomization();
+          }
+        }}
+      >
+        <SheetContent side="right" className="p-0">
+          <SheetHeader className="p-6 pb-3">
+            <SheetTitle>Customize item</SheetTitle>
+            <SheetDescription>
+              Select required options before adding to cart.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="px-6 pb-6 space-y-4">
+            {itemDetailQ.isLoading ? (
+              <div className="space-y-2">
+                <div className="h-12 rounded-md bg-muted" />
+                <div className="h-12 rounded-md bg-muted" />
+                <div className="h-12 rounded-md bg-muted" />
+              </div>
+            ) : itemDetailQ.isError || !itemDetail ? (
+              <div className="text-sm text-muted-foreground">
+                Failed to load item details.
+              </div>
+            ) : (
+              <>
+                <div>
+                  <div className="text-sm font-semibold">{itemDetail.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {itemDetail.slug} • SKU: {itemDetail.sku}
+                  </div>
+                </div>
+
+                {itemDetail.modifierGroups?.length ? (
+                  <div className="space-y-4">
+                    {itemDetail.modifierGroups.map((g) => {
+                      const selected = selectedModsByGroup[g.id] ?? [];
+                      const max = g.maxSelections ?? null;
+                      const min = g.minSelections ?? 0;
+                      return (
+                        <div key={g.id} className="rounded-lg border p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="font-medium">{g.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {g.isRequired ? "Required" : "Optional"}
+                              {g.selectionType === "single"
+                                ? " • single"
+                                : g.selectionType === "exactly"
+                                  ? ` • exactly ${min}`
+                                  : max != null
+                                    ? ` • up to ${max}`
+                                    : ""}
+                            </div>
+                          </div>
+
+                          <div className="mt-2 space-y-2">
+                            {g.modifiers.map((m) => {
+                              const active = selected.includes(m.id);
+                              return (
+                                <button
+                                  key={m.id}
+                                  className={[
+                                    "w-full rounded-md border px-3 py-2 text-left flex items-center justify-between gap-3",
+                                    active
+                                      ? "bg-primary text-primary-foreground border-primary"
+                                      : "hover:bg-muted/50",
+                                  ].join(" ")}
+                                  onClick={() => {
+                                    setSelectedModsByGroup((prev) => {
+                                      const cur = prev[g.id] ?? [];
+                                      const exists = cur.includes(m.id);
+
+                                      if (g.selectionType === "single") {
+                                        return {
+                                          ...prev,
+                                          [g.id]: exists ? [] : [m.id],
+                                        };
+                                      }
+
+                                      if (g.selectionType === "exactly") {
+                                        // treat like multi with hard cap at minSelections
+                                        const cap = Math.max(0, min);
+                                        if (exists) {
+                                          return {
+                                            ...prev,
+                                            [g.id]: cur.filter(
+                                              (x) => x !== m.id,
+                                            ),
+                                          };
+                                        }
+                                        if (cap > 0 && cur.length >= cap)
+                                          return prev;
+                                        return {
+                                          ...prev,
+                                          [g.id]: [...cur, m.id],
+                                        };
+                                      }
+
+                                      // multiple
+                                      if (exists) {
+                                        return {
+                                          ...prev,
+                                          [g.id]: cur.filter((x) => x !== m.id),
+                                        };
+                                      }
+                                      if (max != null && cur.length >= max)
+                                        return prev;
+                                      return {
+                                        ...prev,
+                                        [g.id]: [...cur, m.id],
+                                      };
+                                    });
+                                  }}
+                                >
+                                  <span className="min-w-0 truncate">
+                                    {m.name}
+                                  </span>
+                                  <span className="text-xs tabular-nums opacity-90">
+                                    {m.priceDelta && m.priceDelta !== "0"
+                                      ? `+${formatMoney(m.priceDelta)}`
+                                      : ""}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    No modifiers for this item.
+                  </div>
+                )}
+
+                {customizeError ? (
+                  <div className="text-xs text-destructive">
+                    {customizeError}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+
+          <SheetFooter className="p-6 pt-0">
+            <div className="flex gap-2 w-full">
+              <Button
+                className="flex-1"
+                disabled={busy || itemDetailQ.isLoading || !itemDetail}
+                onClick={async () => {
+                  if (!itemDetail) return;
+
+                  const check = validateGroups(itemDetail.modifierGroups);
+                  if (!check.ok) {
+                    setCustomizeError(check.message);
+                    return;
+                  }
+
+                  const modifiers =
+                    itemDetail.modifierGroups?.flatMap((g) =>
+                      (selectedModsByGroup[g.id] ?? []).map((modifierId) => ({
+                        modifierId,
+                        quantity: 1,
+                      })),
+                    ) ?? [];
+
+                  const nextLine: PosTicketLine = {
+                    menuItemId: itemDetail.id,
+                    quantity: 1,
+                    modifiers: modifiers.length ? modifiers : undefined,
+                  };
+
+                  const next =
+                    customizeIndex == null
+                      ? [...cartItems, nextLine]
+                      : cartItems.map((l, i) =>
+                          i === customizeIndex ? nextLine : l,
+                        );
+
+                  await syncCart(next);
+                  setCustomizeOpen(false);
+                }}
+              >
+                {customizeIndex == null ? "Add to cart" : "Save changes"}
+              </Button>
+              <Button
+                className="flex-1"
+                variant="outline"
+                disabled={busy}
+                onClick={() => setCustomizeOpen(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
 
@@ -832,7 +1159,7 @@ export default function POSPage() {
       </div>
 
       {/* 3 columns */}
-      <div className="h-[calc(100dvh-3.5rem)] grid grid-cols-[280px_1fr_380px]">
+      <div className="h-[calc(100dvh-3.5rem)] grid grid-cols-[10vw_1fr_380px]">
         {/* Categories */}
         <aside className="border-r">
           <ScrollArea className="h-full">
@@ -856,25 +1183,35 @@ export default function POSPage() {
               ) : (
                 categories.map((c) => {
                   const active = c.id === selectedCategoryId;
+
                   return (
                     <button
                       key={c.id}
                       onClick={() => setSelectedCategoryId(c.id)}
                       className={[
-                        "w-full rounded-lg px-3 py-2 text-left border transition-colors",
+                        "w-full rounded-xl border p-3 transition-all duration-200",
+                        "flex flex-col relative justify-center items-center gap-3 text-left shadow-sm",
                         active
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "hover:bg-muted/60",
+                          ? "bg-primary text-primary-foreground border-primary shadow-md"
+                          : "bg-background hover:bg-muted/50 border-border",
                       ].join(" ")}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-medium truncate">{c.name}</div>
-                        <Badge variant={active ? "secondary" : "outline"}>
-                          {c.itemCount}
-                        </Badge>
+                      {/* Category Image / Icon */}
+                      <div>
+                        <Avatar
+                          className={[
+                            "h-12 w-12  flex items-center justify-center overflow-hidden shrink-0",
+                            active ? "bg-primary-foreground/10" : "bg-muted",
+                          ].join(" ")}
+                        >
+                          <AvatarImage src={c.image ?? ""} alt={c.name ?? ""} />
+                          <AvatarFallback>{c.name?.charAt(0)}</AvatarFallback>
+                        </Avatar>
                       </div>
-                      <div className="text-xs opacity-80 truncate">
-                        {c.slug}
+
+                      {/* Category Content */}
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium truncate text-sm">{c.name}</p>
                       </div>
                     </button>
                   );
@@ -945,33 +1282,34 @@ export default function POSPage() {
                     <button
                       key={it.id}
                       onClick={async () => {
+                        if (it.slug) {
+                          setCustomizeSlug(it.slug);
+                          setCustomizeIndex(null);
+                          resetCustomization();
+                          setCustomizeOpen(true);
+                          return;
+                        }
                         const next = upsertLineAddOne(it.id);
                         await syncCart(next);
                       }}
                       disabled={busy}
-                      className="group rounded-xl border p-3 text-left hover:bg-muted/50 transition-colors disabled:opacity-60"
+                      className="group space-y-2 rounded-xl border p-3 text-left hover:bg-muted/50 transition-colors disabled:opacity-60"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="font-semibold truncate">
-                            {it.name}
-                          </div>
-                          <div className="text-xs text-muted-foreground line-clamp-2 mt-1">
-                            {it.description}
-                          </div>
-                        </div>
-                        <div className="text-sm font-semibold tabular-nums">
-                          {Number(it.basePrice).toLocaleString()}
-                        </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <Avatar className="h-12 w-12 flex items-center justify-center overflow-hidden shrink-0">
+                          <AvatarImage
+                            src={it.imageUrl ?? ""}
+                            alt={it.name ?? ""}
+                          />
+                          <AvatarFallback>{it.name?.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div>Rs. {Number(it.basePrice).toLocaleString()}</div>
                       </div>
-
-                      <Separator className="my-2" />
-
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span className="truncate">{it.slug}</span>
-                        <span className="opacity-0 group-hover:opacity-100 transition-opacity">
-                          Add
-                        </span>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold truncate">{it.name}</div>
+                        <div>
+                          <Plus />
+                        </div>
                       </div>
                     </button>
                   ))}
@@ -994,7 +1332,6 @@ export default function POSPage() {
             </div>
           </ScrollArea>
         </main>
-
         {/* Cart */}
         <aside className="border-l">
           <div className="h-full grid grid-rows-[auto_1fr_auto]">
@@ -1058,13 +1395,13 @@ export default function POSPage() {
                     Add items to start a ticket.
                   </div>
                 ) : (
-                  cartItems.map((line) => {
+                  cartItems.map((line, idx) => {
                     const it = itemById.get(line.menuItemId);
                     const name = it?.name ?? line.menuItemId;
                     const price = it?.basePrice ?? null;
 
                     return (
-                      <Card key={line.menuItemId}>
+                      <Card key={`${line.menuItemId}-${idx}`}>
                         <CardContent className="px-3">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -1090,9 +1427,7 @@ export default function POSPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={async () =>
-                                syncCart(dec(line.menuItemId))
-                              }
+                              onClick={async () => syncCart(decAt(idx))}
                               disabled={busy}
                             >
                               -
@@ -1103,9 +1438,7 @@ export default function POSPage() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={async () =>
-                                syncCart(inc(line.menuItemId))
-                              }
+                              onClick={async () => syncCart(incAt(idx))}
                               disabled={busy}
                             >
                               +
@@ -1113,10 +1446,35 @@ export default function POSPage() {
                             <div className="flex-1" />
                             <Button
                               size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                // Open customization for editing, if we have a slug to fetch detail.
+                                const slug = it?.slug ?? null;
+                                if (!slug) return;
+                                setCustomizeSlug(slug);
+                                setCustomizeIndex(idx);
+                                resetCustomization();
+                                // prefill from existing line modifiers
+                                const next: Record<string, string[]> = {};
+                                for (const m of line.modifiers ?? []) {
+                                  // group id is unknown here without item detail; we will map later once loaded
+                                  // simplest: keep as a flat list under a special key; remap after load
+                                  next["__flat__"] = [
+                                    ...(next["__flat__"] ?? []),
+                                    m.modifierId,
+                                  ];
+                                }
+                                setSelectedModsByGroup(next);
+                                setCustomizeOpen(true);
+                              }}
+                              disabled={busy || !it?.slug}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              size="sm"
                               variant="ghost"
-                              onClick={async () =>
-                                syncCart(remove(line.menuItemId))
-                              }
+                              onClick={async () => syncCart(removeAt(idx))}
                               disabled={busy}
                             >
                               Remove

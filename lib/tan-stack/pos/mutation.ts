@@ -28,6 +28,7 @@ export function useSetPosTicketItemsMutation(ticketToken: string) {
   return useMutation({
     mutationFn: (args: { items: PosTicketLine[]; clientUpdatedAt?: string }) =>
       setPosTicketItems({ ticketToken, ...args }),
+    
     onSuccess: (ticket) => {
       qc.setQueryData(["pos-ticket", ticketToken], ticket);
       qc.invalidateQueries({ queryKey: ["pos-ticket-quote", ticketToken] });

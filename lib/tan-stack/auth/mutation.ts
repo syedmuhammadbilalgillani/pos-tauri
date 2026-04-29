@@ -28,6 +28,9 @@ export function useLogoutMutation() {
       await clearAuthSession();
     },
     onSuccess: () => {
+      // Security: clear cached data so the next login can't see it.
+      // This also drops any POS/menu/tickets cache for a clean slate.
+      qc.clear();
       qc.setQueryData(AUTH_KEYS.session(), null);
     },
   });

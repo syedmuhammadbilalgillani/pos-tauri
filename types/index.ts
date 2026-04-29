@@ -180,6 +180,47 @@ export type PosTicketLine = {
   specialInstructions?: string
   modifiers?: { modifierId: string; quantity?: number }[]
 }
+
+// -------------------------
+// Menu item detail (modifiers)
+// -------------------------
+export type PublicModifier = {
+  id: string
+  name: string
+  priceDelta: string
+  displayOrder: number
+}
+
+export type PublicModifierGroup = {
+  id: string
+  name: string
+  selectionType: "single" | "multiple" | "exactly"
+  minSelections: number
+  maxSelections: number | null
+  isRequired: boolean
+  displayOrder: number
+  modifiers: PublicModifier[]
+}
+
+export type PublicMenuItemDetail = {
+  id: string
+  categoryId: string
+  slug: string
+  sku: string
+  name: string
+  description: string | null
+  imageUrl: string | null
+  uom: string | null
+  basePrice: string
+  compareAtPrice: string | null
+  discountPrice: string | null
+  isFeatured: boolean
+  displayOrder: number
+  prepTimeSeconds: number | null
+  modifierGroups?: PublicModifierGroup[]
+  menu: { id: string; name: string }
+  category: { id: string; name: string }
+}
 export type PosTicket = {
   id: string
   sessionToken: string

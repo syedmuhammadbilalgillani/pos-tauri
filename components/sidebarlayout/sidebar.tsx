@@ -39,16 +39,19 @@ export const SidebarFooterMenu = () => {
   // const { data: session } = useSession();
   const { data: session, isPending } = useAuthSession();
 
-  const { mutate: logout } = useLogoutMutation();
+  const { mutateAsync: logout } = useLogoutMutation();
   if (isPending) return null;
 
   const handleLogout = async () => {
     setIsLoading(true);
     // await signOut({ redirect: false });
-    logout();
-    router.push("/");
-    router.refresh();
-    setIsLoading(false);
+    try {
+      await logout();
+      router.push("/");
+      router.refresh();
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (isLoading) return <Loader />;

@@ -16,7 +16,7 @@ const getInitialTheme = (): Theme => {
       return storedTheme;
     }
   }
-  return "system";
+  return "light";
 };
 
 const ThemeProvider = ({ children }: { children: React.ReactNode }) => {

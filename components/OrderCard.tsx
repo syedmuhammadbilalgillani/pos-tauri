@@ -3,7 +3,7 @@
 import type { KdsOrderStatus, OrderWithItems } from "@/types";
 import { patchOrderStatus } from "@/lib/kds";
 import { useOrdersStore } from "@/store/orders";
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -21,20 +21,15 @@ function minutesSince(iso: string) {
 
 function statusBadge(status: KdsOrderStatus) {
   const map: Record<string, string> = {
-    pending:
-      "bg-zinc-100 text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200",
-    confirmed:
-      "bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100",
+    pending: "bg-zinc-100 text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200",
+    confirmed: "bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100",
     preparing:
       "bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-100",
     ready:
       "bg-emerald-50 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100",
-    completed:
-      "bg-zinc-100 text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200",
-    cancelled:
-      "bg-rose-50 text-rose-900 dark:bg-rose-950 dark:text-rose-100",
-    rejected:
-      "bg-rose-50 text-rose-900 dark:bg-rose-950 dark:text-rose-100",
+    completed: "bg-zinc-100 text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200",
+    cancelled: "bg-rose-50 text-rose-900 dark:bg-rose-950 dark:text-rose-100",
+    rejected: "bg-rose-50 text-rose-900 dark:bg-rose-950 dark:text-rose-100",
   };
 
   return (
@@ -60,30 +55,31 @@ function nextPrimaryAction(status: KdsOrderStatus) {
 
 function canCancel(status: KdsOrderStatus) {
   return (
-    status === "pending" ||
-    status === "confirmed" ||
-    status === "preparing"
+    status === "pending" || status === "confirmed" || status === "preparing"
   );
 }
 
 export function OrderCard({ order }: { order: OrderWithItems }) {
   const updateOrderStatus = useOrdersStore((s) => s.updateOrderStatus);
   const removeOrder = useOrdersStore((s) => s.removeOrder);
-
+  const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState<null | "primary" | "cancel">(null);
   const [error, setError] = useState("");
 
   const primary = useMemo(
     () => nextPrimaryAction(order.status),
-    [order.status]
+    [order.status],
   );
+  React.useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
-  const elapsed = minutesSince(order.createdAt);
-
-  async function doPatchStatus(
-    to: KdsOrderStatus,
-    kind: "primary" | "cancel"
-  ) {
+  const createdMs = new Date(order.createdAt).getTime();
+  const elapsed = Number.isFinite(createdMs)
+    ? Math.max(0, Math.floor((now - createdMs) / 60000))
+    : 0;
+  async function doPatchStatus(to: KdsOrderStatus, kind: "primary" | "cancel") {
     setError("");
     setBusy(kind);
 
@@ -94,18 +90,13 @@ export function OrderCard({ order }: { order: OrderWithItems }) {
     try {
       await patchOrderStatus(order.id, { status: to });
 
-      if (
-        to === "completed" ||
-        to === "cancelled" ||
-        to === "rejected"
-      ) {
+      if (to === "completed" || to === "cancelled" || to === "rejected") {
         removeOrder(order.id);
       }
     } catch (e: unknown) {
       updateOrderStatus(order.id, prev);
 
-      const msg =
-        e instanceof Error ? e.message : "Failed to update status";
+      const msg = e instanceof Error ? e.message : "Failed to update status";
 
       setError(msg);
     } finally {
@@ -126,7 +117,7 @@ export function OrderCard({ order }: { order: OrderWithItems }) {
 
               <span
                 className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${statusBadge(
-                  order.status
+                  order.status,
                 )}`}
               >
                 {order.status}
@@ -174,8 +165,7 @@ export function OrderCard({ order }: { order: OrderWithItems }) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold">
-                  {item.quantity}×{" "}
-                  {item.itemNameSnapshot || item.name}
+                  {item.quantity}× {item.itemNameSnapshot || item.name}
                 </div>
 
                 {item.specialInstructions || item.note ? (
@@ -234,9 +224,7 @@ export function OrderCard({ order }: { order: OrderWithItems }) {
             <button
               type="button"
               disabled={busy !== null}
-              onClick={() =>
-                doPatchStatus(primary.to, "primary")
-              }
+              onClick={() => doPatchStatus(primary.to, "primary")}
               className="flex-1 rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-white dark:text-zinc-900"
             >
               {busy === "primary" ? "Processing..." : primary.label}
@@ -247,9 +235,7 @@ export function OrderCard({ order }: { order: OrderWithItems }) {
             <button
               type="button"
               disabled={busy !== null}
-              onClick={() =>
-                doPatchStatus("cancelled", "cancel")
-              }
+              onClick={() => doPatchStatus("cancelled", "cancel")}
               className="rounded-xl border border-rose-200 px-4 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-60 dark:border-rose-900 dark:text-rose-200 dark:hover:bg-rose-950/30"
             >
               {busy === "cancel" ? "..." : "Cancel"}
@@ -258,9 +244,7 @@ export function OrderCard({ order }: { order: OrderWithItems }) {
         </div>
 
         {error ? (
-          <div className="mt-3 text-sm text-rose-600">
-            {error}
-          </div>
+          <div className="mt-3 text-sm text-rose-600">{error}</div>
         ) : null}
       </div>
     </div>

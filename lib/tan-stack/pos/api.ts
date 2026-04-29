@@ -1,5 +1,6 @@
 import type {
   POSCategoryResponse,
+  PublicMenuItemDetail,
   PosTicket,
   PosQuoteResponse,
   PosConvertResponse,
@@ -34,6 +35,26 @@ export async function getMenuItems(args: {
     },
   });
   return response.data;
+}
+
+export async function getMenuItemDetail(args: {
+  slug: string;
+  includeModifiers?: boolean;
+}) {
+  const session = loadAuthSession();
+  const res = await apiClient.get<{ success: boolean; data: PublicMenuItemDetail }>(
+    `/public/menu/items/${args.slug}`,
+    {
+      params: {
+        includeModifiers: args.includeModifiers === false ? "false" : "true",
+        locationId: session?.user?.activeLocationId ?? undefined,
+      },
+    },
+  );
+  if (!res.data?.success) {
+    throw new Error("Failed to load menu item detail");
+  }
+  return res.data;
 }
 
 // ----------------------

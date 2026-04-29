@@ -15,6 +15,8 @@ export const PERMISSION_MODULES = [
     'kds',          // view | manage
     'loyalty',      // view | manage
     'reservations', // view | manage
+    'pos',          // view | manage
+    'kds',      // view | manage
   ] as const;
   
   export type PermissionModule = (typeof PERMISSION_MODULES)[number];
