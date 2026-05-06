@@ -66,6 +66,7 @@ import {
   saveTicketToken,
 } from "@/lib/tan-stack/pos/ticket-token";
 import { Plus } from "lucide-react";
+import { toast } from "sonner";
 
 type MenuItem = {
   id: string;
@@ -250,7 +251,6 @@ export default function POSPage() {
       );
     });
   }, [items, search]);
-  console.log(filteredItems);
 
   // -------------------------
   // Ticket data
@@ -328,9 +328,11 @@ export default function POSPage() {
         items: next,
         clientUpdatedAt: ticketUpdatedAt,
       });
-    } catch {
+    } catch (e) {
       setCartItems(prev);
-      setUiError("Failed to sync cart. Check backend connection and retry.");
+      const msg = e instanceof Error && e.message ? e.message : "Failed to sync cart — check connection and retry";
+      setUiError(msg);
+      toast.error(msg);
     }
   }
 
@@ -448,36 +450,56 @@ export default function POSPage() {
   // Actions wired to UI
   // -------------------------
   async function onNewTicket() {
-    const t = await createTicketM.mutateAsync({ orderType: "takeaway" });
-    await saveTicketToken(t.sessionToken);
-    setTicketToken(t.sessionToken);
-    setOrderId(null);
-    setCartItems(t.cartItems ?? []);
+    try {
+      const t = await createTicketM.mutateAsync({ orderType: "takeaway" });
+      await saveTicketToken(t.sessionToken);
+      setTicketToken(t.sessionToken);
+      setOrderId(null);
+      setCartItems(t.cartItems ?? []);
+    } catch {
+      // toast already fired by mutation onError
+    }
   }
 
   async function onClearTicket() {
     if (!ticketToken) return;
-    await syncCart([]);
-    setOrderId(null);
+    try {
+      await syncCart([]);
+      setOrderId(null);
+    } catch {
+      // syncCart handles its own toast
+    }
   }
 
   async function onHold() {
     if (!ticketToken) return;
-    await holdM?.mutateAsync();
+    try {
+      await holdM?.mutateAsync();
+      toast.success("Ticket held");
+    } catch {
+      // toast already fired by mutation onError
+    }
   }
 
   async function onSend() {
     if (!ticketToken) return;
-    const res = await convertM?.mutateAsync({
-      clientTotal: total,
-      customerNotes: customerNotesDraft.trim() || undefined,
-      kitchenNotes: kitchenNotesDraft.trim() || undefined,
-      tableNumber:
-        orderTypeDraft === "dine_in"
-          ? tableNumberDraft.trim() || undefined
-          : undefined,
-    });
-    if (res?.id) setOrderId(res.id);
+    try {
+      const res = await convertM?.mutateAsync({
+        clientTotal: total,
+        customerNotes: customerNotesDraft.trim() || undefined,
+        kitchenNotes: kitchenNotesDraft.trim() || undefined,
+        tableNumber:
+          orderTypeDraft === "dine_in"
+            ? tableNumberDraft.trim() || undefined
+            : undefined,
+      });
+      if (res?.id) {
+        setOrderId(res.id);
+        toast.success("Order sent to kitchen");
+      }
+    } catch {
+      // toast already fired by mutation onError
+    }
   }
 
   async function onOpenPayment() {
@@ -501,7 +523,15 @@ export default function POSPage() {
   // -------------------------
 
   if (!canManagePos) {
-    return <div>You do not have permission to view the POS.</div>;
+    return (
+      <div className="flex h-dvh items-center justify-center bg-background">
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/5 px-10 py-8 text-center">
+          <div className="text-4xl font-bold text-destructive/40">🔒</div>
+          <h2 className="mt-3 text-lg font-semibold">Access Denied</h2>
+          <p className="mt-1 text-sm text-muted-foreground">You do not have permission to use the POS.</p>
+        </div>
+      </div>
+    );
   }
   return (
     <div className="h-dvh bg-background">
@@ -556,12 +586,16 @@ export default function POSPage() {
                     key={t.sessionToken}
                     className="w-full rounded-lg border p-3 text-left hover:bg-muted/50 transition-colors"
                     onClick={async () => {
-                      await saveTicketToken(t.sessionToken);
-                      setTicketToken(t.sessionToken);
-                      setOrderId(null);
-                      setCartItems(t.cartItems ?? []);
-                      await recallByTokenM.mutateAsync(t.sessionToken);
-                      setHeldOpen(false);
+                      try {
+                        await saveTicketToken(t.sessionToken);
+                        setTicketToken(t.sessionToken);
+                        setOrderId(null);
+                        setCartItems(t.cartItems ?? []);
+                        await recallByTokenM.mutateAsync(t.sessionToken);
+                        setHeldOpen(false);
+                      } catch {
+                        // toast already fired by mutation onError
+                      }
                     }}
                     disabled={busy || recallByTokenM.isPending}
                   >
@@ -626,8 +660,12 @@ export default function POSPage() {
                   if (!ticketToken) return;
                   const code = promoCodeInput.trim();
                   if (!code) return;
-                  await applyPromoM.mutateAsync(code);
-                  setPromoCodeInput("");
+                  try {
+                    await applyPromoM.mutateAsync(code);
+                    setPromoCodeInput("");
+                  } catch {
+                    // toast already fired by mutation onError
+                  }
                 }}
                 disabled={busy || !ticketToken || applyPromoM.isPending}
               >
@@ -638,7 +676,11 @@ export default function POSPage() {
                 variant="outline"
                 onClick={async () => {
                   if (!ticketToken) return;
-                  await removePromoM.mutateAsync();
+                  try {
+                    await removePromoM.mutateAsync();
+                  } catch {
+                    // toast already fired by mutation onError
+                  }
                 }}
                 disabled={
                   busy ||
@@ -730,14 +772,18 @@ export default function POSPage() {
                 className="flex-1"
                 onClick={async () => {
                   if (!ticketToken) return;
-                  await updateContextM.mutateAsync({
-                    orderType: orderTypeDraft,
-                    tableNumber:
-                      orderTypeDraft === "dine_in"
-                        ? tableNumberDraft.trim() || undefined
-                        : undefined,
-                  });
-                  setContextOpen(false);
+                  try {
+                    await updateContextM.mutateAsync({
+                      orderType: orderTypeDraft,
+                      tableNumber:
+                        orderTypeDraft === "dine_in"
+                          ? tableNumberDraft.trim() || undefined
+                          : undefined,
+                    });
+                    setContextOpen(false);
+                  } catch {
+                    // toast already fired by mutation onError
+                  }
                 }}
                 disabled={busy || !ticketToken || updateContextM.isPending}
               >
@@ -849,30 +895,34 @@ export default function POSPage() {
                 className="flex-1"
                 onClick={async () => {
                   if (!ticketToken) return;
+                  try {
+                    let oid = orderId;
+                    if (!oid) {
+                      const res = await convertM?.mutateAsync({
+                        clientTotal: total,
+                        customerNotes: customerNotesDraft.trim() || undefined,
+                        kitchenNotes: kitchenNotesDraft.trim() || undefined,
+                        tableNumber:
+                          orderTypeDraft === "dine_in"
+                            ? tableNumberDraft.trim() || undefined
+                            : undefined,
+                      });
+                      if (!res?.id) return;
+                      oid = res.id;
+                      setOrderId(oid);
+                    }
 
-                  let oid = orderId;
-                  if (!oid) {
-                    const res = await convertM?.mutateAsync({
-                      clientTotal: total,
-                      customerNotes: customerNotesDraft.trim() || undefined,
-                      kitchenNotes: kitchenNotesDraft.trim() || undefined,
-                      tableNumber:
-                        orderTypeDraft === "dine_in"
-                          ? tableNumberDraft.trim() || undefined
-                          : undefined,
+                    await payByOrderIdM.mutateAsync({
+                      orderId: oid,
+                      paymentMethod: paymentMethodDraft,
+                      amount: paymentAmountDraft.trim() || "0.00",
+                      tipAmount: paymentTipDraft.trim() || undefined,
                     });
-                    if (!res?.id) return;
-                    oid = res.id;
-                    setOrderId(oid);
+                    toast.success("Payment recorded");
+                    setPaymentOpen(false);
+                  } catch {
+                    // toast already fired by mutation onError
                   }
-
-                  await payByOrderIdM.mutateAsync({
-                    orderId: oid,
-                    paymentMethod: paymentMethodDraft,
-                    amount: paymentAmountDraft.trim() || "0.00",
-                    tipAmount: paymentTipDraft.trim() || undefined,
-                  });
-                  setPaymentOpen(false);
                 }}
                 disabled={busy || !ticketToken || payByOrderIdM.isPending}
               >
@@ -1101,44 +1151,52 @@ export default function POSPage() {
       </Sheet>
 
       {/* Top bar */}
-      <div className="h-14 border-b flex items-center gap-3 px-3">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold leading-none truncate">
+      <div className="h-14 border-b bg-background flex items-center gap-3 px-4">
+        <div className="min-w-0 flex items-baseline gap-2">
+          <div className="text-sm font-bold leading-none truncate">
             {menu?.name ?? "POS"}
           </div>
-          <div className="text-xs text-muted-foreground leading-none truncate">
-            {categoriesQ.data?.meta?.location?.name ?? "—"}
+          <div className="text-xs text-muted-foreground leading-none truncate hidden sm:block">
+            {categoriesQ.data?.meta?.location?.name ?? ""}
           </div>
         </div>
 
         <div className="flex-1" />
 
-        <div className="w-[420px] max-w-[55vw]">
+        <div className="w-[380px] max-w-[40vw]">
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search items…"
+            className="h-9 bg-muted/40"
           />
         </div>
 
         <Button
-          variant="secondary"
+          size="sm"
           onClick={onNewTicket}
           disabled={busy || createTicketM.isPending}
         >
-          New Ticket
+          + New
         </Button>
 
         <Button
+          size="sm"
           variant="outline"
           onClick={() => setHeldOpen(true)}
           disabled={busy}
           title="Recall held tickets"
         >
           Held
+          {(heldTicketsQ.data?.items?.length ?? 0) > 0 && (
+            <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+              {heldTicketsQ.data?.items?.length}
+            </span>
+          )}
         </Button>
 
         <Button
+          size="sm"
           variant="outline"
           onClick={() => {
             setOrderTypeDraft(
@@ -1154,7 +1212,9 @@ export default function POSPage() {
           disabled={busy}
           title="Order type and notes"
         >
-          Context
+          {orderTypeDraft === "dine_in" ? "Dine In" :
+           orderTypeDraft === "takeaway" ? "Takeaway" :
+           orderTypeDraft === "delivery" ? "Delivery" : "Catering"}
         </Button>
       </div>
 
@@ -1293,23 +1353,26 @@ export default function POSPage() {
                         await syncCart(next);
                       }}
                       disabled={busy}
-                      className="group space-y-2 rounded-xl border p-3 text-left hover:bg-muted/50 transition-colors disabled:opacity-60"
+                      className="group relative rounded-xl border bg-card p-3 text-left hover:border-primary/40 hover:shadow-md transition-all duration-150 disabled:opacity-60 active:scale-95"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <Avatar className="h-12 w-12 flex items-center justify-center overflow-hidden shrink-0">
-                          <AvatarImage
-                            src={it.imageUrl ?? ""}
-                            alt={it.name ?? ""}
-                          />
-                          <AvatarFallback>{it.name?.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <div>Rs. {Number(it.basePrice).toLocaleString()}</div>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-semibold truncate">{it.name}</div>
-                        <div>
-                          <Plus />
-                        </div>
+                      <Avatar className="h-14 w-14 mx-auto rounded-xl">
+                        <AvatarImage
+                          src={it.imageUrl ?? ""}
+                          alt={it.name ?? ""}
+                          className="object-cover"
+                        />
+                        <AvatarFallback className="rounded-xl text-lg font-bold bg-primary/10 text-primary">
+                          {it.name?.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="mt-2 font-semibold truncate text-sm leading-tight">{it.name}</div>
+                      <div className="mt-0.5 flex items-center justify-between gap-1">
+                        <span className="text-xs font-bold text-primary">
+                          Rs. {Number(it.basePrice).toLocaleString()}
+                        </span>
+                        <span className="rounded-md bg-primary/10 p-0.5 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                          <Plus className="h-3.5 w-3.5" />
+                        </span>
                       </div>
                     </button>
                   ))}
@@ -1399,45 +1462,46 @@ export default function POSPage() {
                     const it = itemById.get(line.menuItemId);
                     const name = it?.name ?? line.menuItemId;
                     const price = it?.basePrice ?? null;
+                    const lineTotal = price != null ? (Number(price) * line.quantity).toLocaleString() : null;
 
                     return (
-                      <Card key={`${line.menuItemId}-${idx}`}>
-                        <CardContent className="px-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="font-medium truncate">{name}</div>
+                      <Card key={`${line.menuItemId}-${idx}`} className="overflow-hidden">
+                        <CardContent className="p-0">
+                          <div className="flex items-center gap-3 px-3 pt-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-sm truncate">{name}</div>
                               {line.specialInstructions ? (
-                                <div className="text-xs text-muted-foreground line-clamp-2">
+                                <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
                                   {line.specialInstructions}
                                 </div>
-                              ) : (
-                                <div className="text-xs text-muted-foreground">
-                                  {it?.slug ?? ""}
+                              ) : line.modifiers?.length ? (
+                                <div className="text-xs text-muted-foreground mt-0.5 truncate">
+                                  {line.modifiers.length} modifier{line.modifiers.length > 1 ? "s" : ""}
                                 </div>
-                              )}
+                              ) : null}
                             </div>
-                            <div className="text-sm font-semibold tabular-nums">
-                              {price != null
-                                ? Number(price).toLocaleString()
-                                : "—"}
+                            <div className="text-sm font-bold tabular-nums text-primary shrink-0">
+                              {lineTotal != null ? `Rs. ${lineTotal}` : "—"}
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 mt-3">
+                          <div className="flex items-center gap-1.5 px-3 pb-2.5 mt-2">
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-7 w-7 p-0 rounded-lg"
                               onClick={async () => syncCart(decAt(idx))}
                               disabled={busy}
                             >
                               -
                             </Button>
-                            <div className="w-10 text-center text-sm tabular-nums">
+                            <div className="w-8 text-center text-sm font-bold tabular-nums">
                               {line.quantity}
                             </div>
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-7 w-7 p-0 rounded-lg"
                               onClick={async () => syncCart(incAt(idx))}
                               disabled={busy}
                             >
@@ -1446,7 +1510,8 @@ export default function POSPage() {
                             <div className="flex-1" />
                             <Button
                               size="sm"
-                              variant="outline"
+                              variant="ghost"
+                              className="h-7 px-2 text-xs"
                               onClick={() => {
                                 // Open customization for editing, if we have a slug to fetch detail.
                                 const slug = it?.slug ?? null;
@@ -1474,10 +1539,11 @@ export default function POSPage() {
                             <Button
                               size="sm"
                               variant="ghost"
+                              className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
                               onClick={async () => syncCart(removeAt(idx))}
                               disabled={busy}
                             >
-                              Remove
+                              ✕
                             </Button>
                           </div>
                         </CardContent>
@@ -1489,32 +1555,35 @@ export default function POSPage() {
               {/* <ScrollBar orientation="horizontal" /> */}
             </ScrollArea>
 
-            <div className="p-3 border-t bg-background">
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span className="tabular-nums">
-                    {quoteQ.isFetching ? "…" : formatMoney(subtotal)}
+            <div className="p-4 border-t bg-background space-y-3">
+              {/* Totals */}
+              <div className="rounded-xl bg-muted/40 px-3 py-2.5 space-y-1.5 text-sm">
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Subtotal</span>
+                  <span className="tabular-nums font-medium text-foreground">
+                    {quoteQ.isFetching ? <span className="opacity-40">…</span> : `Rs. ${formatMoney(subtotal)}`}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tax</span>
-                  <span className="tabular-nums">
-                    {quoteQ.isFetching ? "…" : formatMoney(tax)}
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Tax</span>
+                  <span className="tabular-nums font-medium text-foreground">
+                    {quoteQ.isFetching ? <span className="opacity-40">…</span> : `Rs. ${formatMoney(tax)}`}
                   </span>
                 </div>
-                <Separator className="my-2" />
-                <div className="flex justify-between font-semibold">
+                <Separator className="my-1" />
+                <div className="flex justify-between font-bold text-base">
                   <span>Total</span>
-                  <span className="tabular-nums">
-                    {quoteQ.isFetching ? "…" : formatMoney(total)}
+                  <span className="tabular-nums text-primary">
+                    {quoteQ.isFetching ? <span className="opacity-40">…</span> : `Rs. ${formatMoney(total)}`}
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 mt-3">
+              {/* Action buttons */}
+              <div className="grid grid-cols-2 gap-2">
                 <Button
-                  variant="secondary"
+                  variant="outline"
+                  size="sm"
                   onClick={onHold}
                   disabled={busy || !ticketToken}
                 >
@@ -1522,26 +1591,27 @@ export default function POSPage() {
                 </Button>
 
                 <Button
-                  variant="outline"
+                  variant="secondary"
+                  size="sm"
                   onClick={onSend}
                   disabled={busy || !ticketToken || cartItems.length === 0}
                 >
-                  Send
+                  Send to Kitchen
                 </Button>
 
                 <Button
-                  className="col-span-2"
+                  className="col-span-2 h-11 text-base font-bold"
                   onClick={onOpenPayment}
                   disabled={busy || !ticketToken || cartItems.length === 0}
                 >
-                  Pay
+                  Pay · Rs. {formatMoney(total)}
                 </Button>
               </div>
 
               {ticketQ.isError ? (
-                <div className="text-xs text-destructive mt-2">
-                  Failed to load ticket. Clear token and retry.
-                </div>
+                <p className="text-xs text-destructive text-center">
+                  Failed to load ticket — clear token and retry.
+                </p>
               ) : null}
             </div>
           </div>

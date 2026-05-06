@@ -12,11 +12,11 @@ const publicAuthConfig = { token: "", _skipRefresh: true } as const;
 export async function loginRequest(body: {
   email: string;
   password: string;
-  rememberMe: boolean;
   locationId?: string;
+  tenantSlug: string;
 }): Promise<AuthSession> {
   const res = await apiClient.post<PosLoginResponseBody>(
-    "users/pos/login",
+    "restaurant/auth/login",
     body,
     publicAuthConfig,
   );
@@ -53,7 +53,7 @@ export async function refreshRequest(
   locationId?: string,
 ): Promise<PosRefreshResponseBody> {
   const res = await apiClient.post<PosRefreshResponseBody>(
-    "users/pos/refresh",
+    "restaurant/auth/refresh",
     { refreshToken, locationId },
     publicAuthConfig,
   );

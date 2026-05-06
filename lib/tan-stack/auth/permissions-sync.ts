@@ -49,17 +49,19 @@ export async function silentlyRefreshPermissions(): Promise<void> {
 export function usePermissionsSync(): void {
   React.useEffect(() => {
     const handleFocus = () => void silentlyRefreshPermissions();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') handleFocus();
+    };
 
     window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') handleFocus();
-    });
+    document.addEventListener('visibilitychange', handleVisibility);
 
     // Also refresh on mount (covers app re-open in Tauri)
     void silentlyRefreshPermissions();
 
     return () => {
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 }

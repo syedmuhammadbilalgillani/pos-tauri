@@ -12,6 +12,7 @@ import type {
   SocketOrderStatusChanged,
 } from "@/types";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 type Mode = "kds" | "foh";
 
@@ -34,6 +35,8 @@ export function useRealtimeOrders(mode: Mode) {
   }, [mode]);
 
   const hasEverConnected = useRef(false);
+  // Track whether we already showed a disconnect toast so we don't spam
+  const disconnectToastId = useRef<string | number | null>(null);
 
   const [connection, setConnection] = useState<RealtimeConnectionState>("connecting");
   const [connectionError, setConnectionError] = useState("");
@@ -58,7 +61,7 @@ export function useRealtimeOrders(mode: Mode) {
       try {
         await refetch();
       } catch {
-        // ignore
+        // ignore — will retry via socket reconnect
       }
 
       if (cancelled) return;
@@ -67,8 +70,10 @@ export function useRealtimeOrders(mode: Mode) {
         socket = await createRealtimeSocket();
       } catch (e: unknown) {
         if (cancelled) return;
+        const msg = e instanceof Error ? e.message : "Failed to create socket";
         setConnection("error");
-        setConnectionError(e instanceof Error ? e.message : "Failed to create socket");
+        setConnectionError(msg);
+        toast.error(`Realtime connection failed: ${msg}`, { id: "socket-error" });
         return;
       }
 
@@ -78,7 +83,7 @@ export function useRealtimeOrders(mode: Mode) {
       }
 
       socket.on("connect", () => {
-        // This means transport connected; gateway may still reject before "connected"
+        // Transport connected — gateway auth not confirmed yet until "connected" event
         if (!hasEverConnected.current) setConnection("connecting");
       });
 
@@ -86,6 +91,11 @@ export function useRealtimeOrders(mode: Mode) {
         hasEverConnected.current = true;
         setConnection("connected");
         setConnectionError("");
+        // Dismiss any previous disconnect toast
+        if (disconnectToastId.current !== null) {
+          toast.dismiss(disconnectToastId.current);
+          disconnectToastId.current = null;
+        }
         // Optional: see the room/tenant/location in console
         // console.log("connected payload", p);
         void p;
@@ -95,6 +105,10 @@ export function useRealtimeOrders(mode: Mode) {
         if (cancelled) return;
         setConnection("disconnected");
         setConnectionError(String(reason ?? ""));
+        disconnectToastId.current = toast.warning("Realtime disconnected — reconnecting…", {
+          id: "socket-disconnect",
+          duration: Infinity,
+        });
       });
 
       socket.on("connect_error", (err: Error) => {
@@ -128,7 +142,7 @@ export function useRealtimeOrders(mode: Mode) {
         }
       });
 
-      // When the socket reconnects later, re-sync once.
+      // Re-sync after reconnect (only fires when hasEverConnected is true)
       socket.on("connect", async () => {
         if (!hasEverConnected.current) return;
         try {
@@ -143,6 +157,11 @@ export function useRealtimeOrders(mode: Mode) {
       cancelled = true;
       socket?.disconnect();
       socket = null;
+      // Clean up lingering disconnect toast on unmount
+      if (disconnectToastId.current !== null) {
+        toast.dismiss(disconnectToastId.current);
+        disconnectToastId.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);

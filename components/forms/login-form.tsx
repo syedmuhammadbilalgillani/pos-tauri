@@ -20,6 +20,15 @@ type LoginFormValues = LoginInput;
 const loginFields: DynamicField<LoginFormValues>[] = [
   {
     type: "input",
+    name: "tenantSlug",
+    label: "Restraunt Code",
+    placeholder: "Enter restaurant code",
+    inputType: "slug",
+    required: true,
+    colSpan: 12,
+  },
+  {
+    type: "input",
     name: "email",
     label: "Email Address",
     placeholder: "Enter your email",
@@ -49,15 +58,6 @@ const loginFields: DynamicField<LoginFormValues>[] = [
       },
     },
     colSpan: 12,
-  },
-  {
-    type: "checkbox",
-    name: "rememberMe",
-    label: "Remember me for 7 days",
-    colSpan: 12,
-    fieldWrapperClassName:
-      "flex items-center flex-row-reverse justify-end gap-2",
-    labelClassName: "mb-0",
   },
 ];
 
@@ -104,7 +104,6 @@ export function LoginForm({ onSuccess, onError }: LoginFormProps) {
         defaultValues={{
           email: "",
           password: "",
-          rememberMe: false,
         }}
         submitLabel="Sign In"
         isSubmitting={isLoading}

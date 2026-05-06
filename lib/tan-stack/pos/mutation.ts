@@ -11,6 +11,11 @@ import {
   updatePosTicketContext,
 } from "./api";
 import { PosTicketLine } from "@/types";
+import { toast } from "sonner";
+
+function errorMsg(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback;
+}
 
 export function useCreatePosTicketMutation() {
   const qc = useQueryClient();
@@ -20,6 +25,7 @@ export function useCreatePosTicketMutation() {
       qc.invalidateQueries({ queryKey: ["pos-tickets"] });
       qc.setQueryData(["pos-ticket", ticket.sessionToken], ticket);
     },
+    onError: (e) => toast.error(errorMsg(e, "Failed to create ticket")),
   });
 }
 
@@ -28,11 +34,11 @@ export function useSetPosTicketItemsMutation(ticketToken: string) {
   return useMutation({
     mutationFn: (args: { items: PosTicketLine[]; clientUpdatedAt?: string }) =>
       setPosTicketItems({ ticketToken, ...args }),
-    
     onSuccess: (ticket) => {
       qc.setQueryData(["pos-ticket", ticketToken], ticket);
       qc.invalidateQueries({ queryKey: ["pos-ticket-quote", ticketToken] });
     },
+    // Cart sync errors are handled optimistically in the page — no toast here to avoid double
   });
 }
 
@@ -41,6 +47,7 @@ export function useHoldPosTicketMutation(ticketToken: string) {
   return useMutation({
     mutationFn: () => holdPosTicket(ticketToken),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pos-tickets"] }),
+    onError: (e) => toast.error(errorMsg(e, "Failed to hold ticket")),
   });
 }
 
@@ -49,6 +56,7 @@ export function useRecallPosTicketMutation(ticketToken: string) {
   return useMutation({
     mutationFn: () => recallPosTicket(ticketToken),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pos-tickets"] }),
+    onError: (e) => toast.error(errorMsg(e, "Failed to recall ticket")),
   });
 }
 
@@ -60,6 +68,7 @@ export function useRecallPosTicketByTokenMutation() {
       qc.invalidateQueries({ queryKey: ["pos-tickets"] });
       qc.invalidateQueries({ queryKey: ["pos-ticket", ticketToken] });
     },
+    onError: (e) => toast.error(errorMsg(e, "Failed to recall ticket")),
   });
 }
 
@@ -67,8 +76,11 @@ export function useApplyPosPromoMutation(ticketToken: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (code: string) => applyPosPromo({ ticketToken, code }),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["pos-ticket-quote", ticketToken] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pos-ticket-quote", ticketToken] });
+      toast.success("Promo applied");
+    },
+    onError: (e) => toast.error(errorMsg(e, "Invalid or expired promo code")),
   });
 }
 
@@ -76,8 +88,11 @@ export function useRemovePosPromoMutation(ticketToken: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => removePosPromo(ticketToken),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["pos-ticket-quote", ticketToken] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pos-ticket-quote", ticketToken] });
+      toast.success("Promo removed");
+    },
+    onError: (e) => toast.error(errorMsg(e, "Failed to remove promo")),
   });
 }
 
@@ -94,6 +109,7 @@ export function useConvertPosTicketMutation(ticketToken: string) {
       qc.invalidateQueries({ queryKey: ["pos-tickets"] });
       qc.invalidateQueries({ queryKey: ["pos-ticket", ticketToken] });
     },
+    onError: (e) => toast.error(errorMsg(e, "Failed to send order")),
   });
 }
 
@@ -107,7 +123,9 @@ export function useUpdatePosTicketContextMutation(ticketToken: string) {
     onSuccess: (ticket) => {
       qc.setQueryData(["pos-ticket", ticketToken], ticket);
       qc.invalidateQueries({ queryKey: ["pos-ticket-quote", ticketToken] });
+      toast.success("Ticket context saved");
     },
+    onError: (e) => toast.error(errorMsg(e, "Failed to update ticket context")),
   });
 }
 
@@ -134,6 +152,7 @@ export function useAddPosPaymentMutation(orderId: string) {
         amount: args.amount,
         tipAmount: args.tipAmount,
       }),
+    onError: (e) => toast.error(errorMsg(e, "Payment failed")),
   });
 }
 
@@ -161,5 +180,6 @@ export function useAddPosPaymentByOrderIdMutation() {
         amount: args.amount,
         tipAmount: args.tipAmount,
       }),
+    onError: (e) => toast.error(errorMsg(e, "Payment failed")),
   });
 }
