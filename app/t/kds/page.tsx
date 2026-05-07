@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useOrdersStore } from "@/store/orders";
 import { useRealtimeOrders } from "@/hooks/useRealtimeOrders";
-import type { KdsOrderStatus, OrderWithItems } from "@/types";
+import type { KdsOrderStatus, OrderItem } from "@/types";
 import { fetchKdsOrders } from "@/lib/kds";
 import { OrderColumn } from "@/components/OrderColumn";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -16,7 +16,7 @@ const BOARD_STATUSES: KdsOrderStatus[] = [
   "ready",
 ];
 
-function byStatus(orders: OrderWithItems[], status: KdsOrderStatus) {
+function byStatus(orders: OrderItem[], status: KdsOrderStatus) {
   return orders.filter((o) => o.status === status);
 }
 
