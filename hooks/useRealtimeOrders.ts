@@ -6,10 +6,9 @@ import { playNewOrderTone } from "@/lib/sound";
 import { useOrdersStore } from "@/store/orders";
 import type {
   KdsOrderStatus,
-  OrderWithItems,
-  SocketOrderCreated,
+  OrderItem,
   SocketOrderItemStatusChanged,
-  SocketOrderStatusChanged,
+  SocketOrderStatusChanged
 } from "@/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -31,14 +30,17 @@ export function useRealtimeOrders(mode: Mode) {
   const updateItemStatus = useOrdersStore((s) => s.updateItemStatus);
 
   const statuses = useMemo(() => {
-    return (mode === "kds" ? [...KDS_STATUSES] : [...FOH_STATUSES]) as KdsOrderStatus[];
+    return (
+      mode === "kds" ? [...KDS_STATUSES] : [...FOH_STATUSES]
+    ) as KdsOrderStatus[];
   }, [mode]);
 
   const hasEverConnected = useRef(false);
   // Track whether we already showed a disconnect toast so we don't spam
   const disconnectToastId = useRef<string | number | null>(null);
 
-  const [connection, setConnection] = useState<RealtimeConnectionState>("connecting");
+  const [connection, setConnection] =
+    useState<RealtimeConnectionState>("connecting");
   const [connectionError, setConnectionError] = useState("");
 
   async function refetch() {
@@ -47,7 +49,7 @@ export function useRealtimeOrders(mode: Mode) {
       limit: 30,
       cursor: null,
     });
-    setFromFeed(res?.data as OrderWithItems[], res?.nextCursor as string | null);
+    setFromFeed(res?.data as OrderItem[], res?.nextCursor as string | null);
   }
 
   useEffect(() => {
@@ -73,7 +75,9 @@ export function useRealtimeOrders(mode: Mode) {
         const msg = e instanceof Error ? e.message : "Failed to create socket";
         setConnection("error");
         setConnectionError(msg);
-        toast.error(`Realtime connection failed: ${msg}`, { id: "socket-error" });
+        toast.error(`Realtime connection failed: ${msg}`, {
+          id: "socket-error",
+        });
         return;
       }
 
@@ -105,10 +109,13 @@ export function useRealtimeOrders(mode: Mode) {
         if (cancelled) return;
         setConnection("disconnected");
         setConnectionError(String(reason ?? ""));
-        disconnectToastId.current = toast.warning("Realtime disconnected — reconnecting…", {
-          id: "socket-disconnect",
-          duration: Infinity,
-        });
+        disconnectToastId.current = toast.warning(
+          "Realtime disconnected — reconnecting…",
+          {
+            id: "socket-disconnect",
+            duration: Infinity,
+          },
+        );
       });
 
       socket.on("connect_error", (err: Error) => {
@@ -121,11 +128,14 @@ export function useRealtimeOrders(mode: Mode) {
         updateOrderStatus(evt.orderId, evt.toStatus);
       });
 
-      socket.on("order.item_status_changed", (evt: SocketOrderItemStatusChanged) => {
-        updateItemStatus(evt.orderId, evt.orderItemId, evt.status);
-      });
+      socket.on(
+        "order.item_status_changed",
+        (evt: SocketOrderItemStatusChanged) => {
+          updateItemStatus(evt.orderId, evt.orderItemId, evt.status);
+        },
+      );
 
-      socket.on("order.created", async (_evt: SocketOrderCreated) => {
+      socket.on("order.created", async () => {
         try {
           playNewOrderTone();
           await refetch();

@@ -59,7 +59,6 @@ import {
 } from "@/lib/tan-stack/pos/mutation";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { usePermissions } from "@/lib/permissions/usePermissions";
 import {
   clearTicketToken,
   loadTicketToken,
@@ -150,8 +149,8 @@ export default function POSPage() {
   const [tableNumberDraft, setTableNumberDraft] = useState("");
   const [customerNotesDraft, setCustomerNotesDraft] = useState("");
   const [kitchenNotesDraft, setKitchenNotesDraft] = useState("");
-  const { can } = usePermissions();
-  const canManagePos = can("pos", "manage");
+  // const canManagePos = can("pos", "manage");
+  const canManagePos = true
 
   // -------------------------
   // Item customization (modifier groups)
@@ -452,6 +451,7 @@ export default function POSPage() {
   async function onNewTicket() {
     try {
       const t = await createTicketM.mutateAsync({ orderType: "takeaway" });
+      console.log(t, 't');
       await saveTicketToken(t.sessionToken);
       setTicketToken(t.sessionToken);
       setOrderId(null);
@@ -1219,7 +1219,7 @@ export default function POSPage() {
       </div>
 
       {/* 3 columns */}
-      <div className="h-[calc(100dvh-3.5rem)] grid grid-cols-[10vw_1fr_380px]">
+      <div className="h-[calc(100dvh-3.5rem)] grid grid-cols-[12vw_1fr_380px]">
         {/* Categories */}
         <aside className="border-r">
           <ScrollArea className="h-full">

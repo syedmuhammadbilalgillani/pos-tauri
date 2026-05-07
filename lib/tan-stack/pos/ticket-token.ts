@@ -1,6 +1,7 @@
 // tauri-pos/lib/tan-stack/pos/ticket-token.ts
 
 import { isTauri } from "@/lib/tan-stack/auth/runtime";
+import Cookies from "js-cookie";
 
 const KEY = "pos-ticket-token";
 const STORE_FILE = "pos-auth.json";
@@ -15,11 +16,11 @@ export function loadTicketToken(): string | null {
   // Tauri: in-memory cache is not available synchronously for the store,
   // so we fall back to localStorage which exists in Tauri's webview too.
   // The async saveTicketToken/clearTicketToken keep both in sync.
-  return localStorage.getItem(KEY);
+  return Cookies.get(KEY) ?? null;
 }
 
 export async function saveTicketToken(token: string): Promise<void> {
-  localStorage.setItem(KEY, token);
+  Cookies.set(KEY, token);
   if (isTauri()) {
     try {
       const store = await getTauriStore();
@@ -32,7 +33,7 @@ export async function saveTicketToken(token: string): Promise<void> {
 }
 
 export async function clearTicketToken(): Promise<void> {
-  localStorage.removeItem(KEY);
+  Cookies.remove(KEY);
   if (isTauri()) {
     try {
       const store = await getTauriStore();

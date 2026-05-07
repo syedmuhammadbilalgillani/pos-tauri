@@ -1,6 +1,6 @@
 "use client";
 import { startTransition, useEffect, useState } from "react";
-
+import Cookies from "js-cookie";
 const themes = [
   { value: "light", icon: "fas fa-sun text-yellow-500" },
   { value: "dark", icon: "fas fa-moon text-gray-300" },
@@ -11,7 +11,7 @@ type Theme = (typeof themes)[number]["value"];
 
 const getInitialTheme = (): Theme => {
   if (typeof window !== "undefined") {
-    const storedTheme = localStorage.getItem("theme") as Theme;
+    const storedTheme = Cookies.get("theme") as Theme;
     if (storedTheme && themes.some((t) => t.value === storedTheme)) {
       return storedTheme;
     }
@@ -45,7 +45,7 @@ const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
       root.classList.toggle("dark", appliedTheme === "dark");
 
       // Save the theme to localStorage and cookies
-      localStorage.setItem("theme", appliedTheme);
+      Cookies.set("theme", appliedTheme ?? "light");
     }
   }, [theme, isLoading]);
 

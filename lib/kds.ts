@@ -4,7 +4,7 @@ import type {
   CursorPageResponse,
   KdsItemStatus,
   KdsOrderStatus,
-  OrderWithItems,
+  OrderItem,
 } from "@/types";
 import { apiClient } from "./tan-stack/api-helper";
 
@@ -19,7 +19,7 @@ export async function fetchKdsOrders(params: {
   if (params.cursor) qs.set("cursor", params.cursor);
   const res = await apiClient.get(`/kds/orders?${qs.toString()}`, {});
   console.log(res, "res fetchKdsOrders");
-  return res?.data as CursorPageResponse<OrderWithItems>;
+  return res?.data as CursorPageResponse<OrderItem>;
 }
 
 export function patchOrderStatus(

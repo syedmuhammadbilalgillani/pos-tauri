@@ -1,7 +1,5 @@
-import type { PermissionMap } from "@/lib/permissions/types";
-import { boolean } from "zod";
 
-// proposed (new) types (not currently in codebase)
+// ← remove: import { boolean } from "zod";  it was unused and wrong
 export type LocationData = {
   id: string;
   name?: string | null;
@@ -11,47 +9,63 @@ export type AuthUser = {
   name: string | null;
   email: string;
   tenantId: string;
-  permissions: PermissionMap;
+  permissions: any;
   permissionsUpdatedAt: number;
-  // NEW: from backend login response
   locationData: LocationData[];
-  // NEW: persisted selection used everywhere
   activeLocationId: string | null;
 };
-
-export type UserLocationAccess = {
-  locationId: string | null;
-  allLocations: boolean;
-  roleId: string;
-};
-
 export type AuthSession = {
   user: AuthUser;
   accessToken: string;
   refreshToken: string;
   updatedAt: number;
 };
-
+/** Shape returned by Nest login/refresh — wrapped in { data } by TransformInterceptor */
 export type PosLoginResponseBody = {
   data: {
-    id: string;
-    name: string | null;
-    email: string;
-    tenantId: string;
     accessToken: string;
     refreshToken: string;
-    isAuthenticated: true;
-    permissions: PermissionMap;
-    permissionsUpdatedAt: number;
-    // backend name
-    locationData: LocationData[];
+    expiresInSeconds: number;
   };
 };
 export type PosRefreshResponseBody = {
-  accessToken: string;
-  refreshToken: string;
-  permissions: PermissionMap; // ← NEW
-  permissionsUpdatedAt: number; // ← NEW
+  data: {
+    accessToken: string;
+    refreshToken: string;
+    expiresInSeconds: number;
+  };
+};
+/** Shape returned by GET /restaurant/auth/me */
+export type PosStaffMeBody = {
+  data: {
+    user: {
+      id: string;
+      tenantId: string;
+      fullName: string;
+      email: string;
+      phone: string | null;
+      avatarUrl: string | null;
+      emailVerified: boolean;
+      isActive: boolean;
+      lastLoginAt: string | null;
+    };
+    tenant: {
+      id: string;
+      businessName: string;
+      slug: string;
+      status: string;
+      defaultTimezone: string;
+      defaultCurrency: string;
+    };
+    locationsAllowed: {
+      id: string;
+      name: string;
+      code: string;
+      status: string;
+    }[];
+    effectivePermissions: Record<string, Record<string, boolean>>;
+    activeLocationId: string | null;
+  };
 };
 
 export type KdsOrderStatus =
@@ -84,30 +98,90 @@ export type OrderItemModifier = {
   priceDeltaSnapshot?: number;
 };
 
-export type OrderItem = {
-  id: string;
-  name: string;
-  quantity: number;
-  status?: KdsItemStatus;
-  modifiers?: OrderItemModifier[];
-  note?: string | null;
-  itemNameSnapshot?: string | null;
-  specialInstructions?: string | null;
-  lineTotal?: number;
-};
 
-export type OrderWithItems = {
+
+export interface OrderItem {
   id: string;
-  orderNumber: string | number;
+  tenantId: string;
+  locationId: string;
+  customerId: string | null;
+  deliveryAddressId: string | null;
+  deliveryZoneId: string | null;
+  discountId: string | null;
+  qrCodeId: string | null;
+  groupSessionId: string | null;
+  kioskTerminalId: string | null;
+  orderNumber: string;
+  orderType: string;
+  orderSource: string;
+  tableNumber: string | null;
+  aggregatorName: string | null;
+  aggregatorOrderId: string | null;
+  status: string;
+  paymentStatus: string;
+  cancelledBy: string | null;
+  cancelledByType: string | null;
+  cancellationReason: string | null;
+  kitchenNotes: string | null;
+  subtotal: string;
+  discountAmount: string;
+  deliveryFee: string;
+  taxAmount: string;
+  tipAmount: string;
+  serviceCharge: string;
+  walletAmountUsed: string;
+  loyaltyAmountUsed: string;
+  total: string;
+  currency: string;
+  fbrPosCharge: string;
+  fbrPosChargeRate: string;
+  fbrInvoiceNumber: string | null;
+  srbTaxAmount: string;
+  customerNotes: string | null;
+  internalNotes: string | null;
+  estimatedPrepMinutes: string | null;
+  scheduledFor: string | null;
+  isPreOrder: boolean;
+  confirmedAt: string;
+  preparingAt: string | null;
+  readyAt: string | null;
+  outForDeliveryAt: string | null;
+  deliveredAt: string | null;
+  dailyTicket: number;
+  cancelledAt: string | null;
   createdAt: string;
-  status: KdsOrderStatus;
-  orderType?: OrderType;
-  kitchenNotes?: string | null;
-  notes?: string | null;
-  items: OrderItem[];
-  orderSource?: string | null;
-  customerNotes?: string | null;
-};
+  updatedAt: string;
+  items: Item[];
+}
+
+export interface Item {
+  id: string;
+  orderId: string;
+  menuItemId: string;
+  itemNameSnapshot: string;
+  itemSkuSnapshot: string;
+  unitPriceSnapshot: string;
+  discountPriceSnapshot: string | null;
+  quantity: number;
+  modifierTotal: string;
+  lineDiscount: string;
+  lineTotal: string;
+  specialInstructions: string | null;
+  status: string;
+  createdAt: string;
+  modifiers: Modifier[];
+}
+
+export interface Modifier {
+  id: string;
+  orderItemId: string;
+  modifierId: string;
+  modifierNameSnapshot: string;
+  groupNameSnapshot: string;
+  priceDeltaSnapshot: string;
+  quantity: number;
+}
+
 
 export type CursorPageResponse<T> = {
   data: T[];
@@ -153,7 +227,7 @@ export type POSCategory = {
   image: string | null;
   slug: string;
   itemCount: number;
-}
+};
 export type POSCategoryResponse = {
   success: boolean;
   meta: {
@@ -171,93 +245,92 @@ export type POSCategoryResponse = {
       slug: string;
     };
   };
-}
-
+};
 
 export type PosTicketLine = {
-  menuItemId: string
-  quantity: number
-  specialInstructions?: string
-  modifiers?: { modifierId: string; quantity?: number }[]
-}
+  menuItemId: string;
+  quantity: number;
+  specialInstructions?: string;
+  modifiers?: { modifierId: string; quantity?: number }[];
+};
 
 // -------------------------
 // Menu item detail (modifiers)
 // -------------------------
 export type PublicModifier = {
-  id: string
-  name: string
-  priceDelta: string
-  displayOrder: number
-}
+  id: string;
+  name: string;
+  priceDelta: string;
+  displayOrder: number;
+};
 
 export type PublicModifierGroup = {
-  id: string
-  name: string
-  selectionType: "single" | "multiple" | "exactly"
-  minSelections: number
-  maxSelections: number | null
-  isRequired: boolean
-  displayOrder: number
-  modifiers: PublicModifier[]
-}
+  id: string;
+  name: string;
+  selectionType: "single" | "multiple" | "exactly";
+  minSelections: number;
+  maxSelections: number | null;
+  isRequired: boolean;
+  displayOrder: number;
+  modifiers: PublicModifier[];
+};
 
 export type PublicMenuItemDetail = {
-  id: string
-  categoryId: string
-  slug: string
-  sku: string
-  name: string
-  description: string | null
-  imageUrl: string | null
-  uom: string | null
-  basePrice: string
-  compareAtPrice: string | null
-  discountPrice: string | null
-  isFeatured: boolean
-  displayOrder: number
-  prepTimeSeconds: number | null
-  modifierGroups?: PublicModifierGroup[]
-  menu: { id: string; name: string }
-  category: { id: string; name: string }
-}
+  id: string;
+  categoryId: string;
+  slug: string;
+  sku: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  uom: string | null;
+  basePrice: string;
+  compareAtPrice: string | null;
+  discountPrice: string | null;
+  isFeatured: boolean;
+  displayOrder: number;
+  prepTimeSeconds: number | null;
+  modifierGroups?: PublicModifierGroup[];
+  menu: { id: string; name: string };
+  category: { id: string; name: string };
+};
 export type PosTicket = {
-  id: string
-  sessionToken: string
-  orderType?: "dine_in" | "takeaway" | "delivery" | "catering"
-  promoCode?: string | null
-  cartItems: PosTicketLine[]
-  status: "active" | "held" | "converted" | string
-  updatedAt: string
-  createdAt: string
-}
+  id: string;
+  sessionToken: string;
+  orderType?: "dine_in" | "takeaway" | "delivery" | "catering";
+  promoCode?: string | null;
+  cartItems: PosTicketLine[];
+  status: "active" | "held" | "converted" | string;
+  updatedAt: string;
+  createdAt: string;
+};
 export type PosQuoteResponse = {
-  currency: string
-  subtotal: string
-  discountAmount: string
-  serviceCharge: string
-  taxAmount: string
-  deliveryFee: string
-  fbrPosCharge: string
-  srbTaxAmount: string
-  total: string
+  currency: string;
+  subtotal: string;
+  discountAmount: string;
+  serviceCharge: string;
+  taxAmount: string;
+  deliveryFee: string;
+  fbrPosCharge: string;
+  srbTaxAmount: string;
+  total: string;
   appliedDiscount: null | {
-    discountId: string
-    code: string
-    type: string
-    value: string
-  }
-  issues: Array<{ code: string; message: string; meta?: any }>
-}
+    discountId: string;
+    code: string;
+    type: string;
+    value: string;
+  };
+  issues: Array<{ code: string; message: string; meta?: any }>;
+};
 export type PosConvertResponse = {
-  id: string
-  orderNumber: string
-  status: string
-  paymentStatus: string
-  total: string
-  currency: string
-}
+  id: string;
+  orderNumber: string;
+  status: string;
+  paymentStatus: string;
+  total: string;
+  currency: string;
+};
 export type PosPaymentResponse = {
-  payment: any
-  paymentStatus: "unpaid" | "partial" | "paid" | "failed" | string
-}
+  payment: any;
+  paymentStatus: "unpaid" | "partial" | "paid" | "failed" | string;
+};

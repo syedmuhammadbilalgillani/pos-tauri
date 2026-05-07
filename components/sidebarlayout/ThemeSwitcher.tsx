@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sun, Moon, Monitor } from "lucide-react";
+import Cookies from "js-cookie";
 
 const themes = [
   { value: "light", icon: Sun, label: "Light" },
@@ -24,7 +25,7 @@ const ThemeSwitch = () => {
 
   // On mount, read the stored theme preference and update state.
   useEffect(() => {
-    const storedTheme = localStorage.getItem("theme") as Theme | undefined;
+    const storedTheme = Cookies.get("theme") as Theme | undefined;
     if (storedTheme && themes.some((t) => t.value === storedTheme)) {
       startTransition(() => {
         setTheme(storedTheme);
@@ -44,7 +45,7 @@ const ThemeSwitch = () => {
     root.setAttribute("data-theme", appliedTheme);
     root.classList.toggle("dark", appliedTheme === "dark");
 
-    localStorage.setItem("theme", appliedTheme);
+    Cookies.set("theme", appliedTheme ?? "light");
   }, [theme]);
 
   const handleThemeChange = (selectedTheme: Theme) => {

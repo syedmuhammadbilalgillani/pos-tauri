@@ -1,67 +1,70 @@
-'use client';
+"use client";
 
-import * as React from 'react';
-import { queryClient } from '@/lib/tan-stack/query-client';
-import { AUTH_KEYS } from './key';
-import {
-  loadAuthSession,
-  updateSessionTokens,
-} from './storage';
-import { refreshRequest } from './api';
+import * as React from "react";
+import { queryClient } from "@/lib/tan-stack/query-client";
+import { AUTH_KEYS } from "./key";
+import { loadAuthSession, updateSessionTokens, updateSessionPermissions } from "./storage";
+import { refreshRequest } from "./api";
+import type { PosStaffMeBody } from "@/types";
 
-/** Re-fetch permissions if stale by more than this threshold. */
-const STALE_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+const STALE_THRESHOLD_MS = 10 * 60 * 1_000; // 10 minutes
 
 /**
- * Silently refreshes tokens + permissions.
- * Called on window focus or when a 403 is detected.
- * Does nothing if offline or if permissions are fresh.
+ * Silently refreshes tokens then re-fetches /me for fresh permissions.
+ * Called on window focus / visibilitychange and on mount (covers Tauri app re-open).
  */
 export async function silentlyRefreshPermissions(): Promise<void> {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
 
   const session = loadAuthSession();
   if (!session?.refreshToken) return;
 
   const lastUpdated = session.user?.permissionsUpdatedAt ?? 0;
-  const isStale = Date.now() - lastUpdated > STALE_THRESHOLD_MS;
-  if (!isStale) return;
+  if (Date.now() - lastUpdated < STALE_THRESHOLD_MS) return;
 
   try {
+    // 1. Rotate tokens
     const tokens = await refreshRequest(session.refreshToken);
-    await updateSessionTokens(
-      tokens.accessToken,
-      tokens.refreshToken,
-      tokens.permissions,
-      tokens.permissionsUpdatedAt,
-    );
-    // Update TanStack Query cache so usePermissions() re-renders
+    await updateSessionTokens(tokens.accessToken, tokens.refreshToken);
+
+    // 2. Fetch fresh permissions from /me using current active location
+    const locationId = loadAuthSession()?.user?.activeLocationId;
+    const { apiClient } = await import("@/lib/tan-stack/api-helper");
+
+    const meRes = await apiClient.get<PosStaffMeBody>("restaurant/auth/me", {
+      token: tokens.accessToken,
+      _skipRefresh: true,
+      ...(locationId ? { headers: { "x-location-id": locationId } } : {}),
+    });
+
+    const perms = meRes.data?.data?.effectivePermissions;
+    if (perms) {
+      await updateSessionPermissions(perms, Date.now());
+    }
+
+    // Push updated session into TanStack Query cache
     queryClient.setQueryData(AUTH_KEYS.session(), loadAuthSession());
   } catch {
-    // Silent — never crash the UI for a background permission refresh
+    // Silent — never crash the UI for a background permission sync
   }
 }
 
-/**
- * Hook — call once at app root (in Providers).
- * Listens to window focus + visibilitychange to refresh stale permissions.
- */
 export function usePermissionsSync(): void {
   React.useEffect(() => {
     const handleFocus = () => void silentlyRefreshPermissions();
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') handleFocus();
+      if (document.visibilityState === "visible") handleFocus();
     };
 
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
 
-    // Also refresh on mount (covers app re-open in Tauri)
+    // Run on mount — covers app re-open in Tauri
     void silentlyRefreshPermissions();
 
     return () => {
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
 }

@@ -2,13 +2,13 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useAuthSession } from "@/lib/tan-stack/auth";
 import AppSidebar from "@/components/sidebarlayout/app-side-bar";
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { useAuthSession } from "@/lib/tan-stack/auth/query";
 
 function isAuthed(session: ReturnType<typeof useAuthSession>["data"]) {
   return (
