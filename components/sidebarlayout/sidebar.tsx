@@ -16,7 +16,8 @@ import {
 } from "../ui/sidebar";
 // import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useAuthSession, useLogoutMutation } from "@/lib/tan-stack/auth";
+import { useAuthSession } from "@/lib/tan-stack/auth/query";
+import { useLogoutMutation } from "@/lib/tan-stack/auth/mutation";
 
 // Re-export navigation components for convenience
 export { NavMain } from "./nav-main";

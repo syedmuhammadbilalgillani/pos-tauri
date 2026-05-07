@@ -1,7 +1,7 @@
 // app/login/page.tsx
 "use client";
 
-import { LoginForm, LoginFormFooterLinks } from "@/components/forms/login-form";
+import { LoginForm } from "@/components/forms/login-form";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Card,
@@ -10,8 +10,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { loadAuthSession } from "@/lib/tan-stack/auth";
-import Link from "next/link";
 import * as React from "react";
 import { Suspense } from "react";
 

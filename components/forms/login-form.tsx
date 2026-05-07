@@ -5,7 +5,6 @@ import {
   DynamicForm,
   type DynamicField,
 } from "@/components/forms/form-builder";
-import { useLoginMutation } from "@/lib/tan-stack/auth";
 import { LoginInput } from "@/lib/validations/auth";
 import { LocationData } from "@/types";
 
@@ -14,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { LocationSelectModal } from "../location-select-modal";
 import { setActiveLocationId } from "@/lib/tan-stack/auth/storage";
+import { useLoginMutation } from "@/lib/tan-stack/auth/mutation";
 
 type LoginFormValues = LoginInput;
 

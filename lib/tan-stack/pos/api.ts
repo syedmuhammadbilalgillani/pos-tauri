@@ -8,14 +8,14 @@ import type {
   PosTicketLine,
 } from "@/types";
 import { apiClient } from "../api-helper";
-import { loadAuthSession } from "../auth";
+import { loadAuthSession } from "../auth/storage";
 
 // Existing
 export async function getMenuCategories() {
-  const response = await apiClient.get<POSCategoryResponse | null>(
-    `/menus/bootstrap`,
+  const response = await apiClient.get<{ data: POSCategoryResponse | null }>(
+    `/restaurant/menus/bootstrap`,
   );
-  return response.data;
+  return response.data?.data;
 }
 
 export async function getMenuItems(args: {
@@ -25,7 +25,7 @@ export async function getMenuItems(args: {
   limit?: number;
 }) {
   const session = loadAuthSession();
-  const response = await apiClient.get(`/menus/items`, {
+  const response = await apiClient.get(`/restaurant/menus/items`, {
     params: {
       categoryId: args.categoryId,
       locationId: session?.user?.activeLocationId,
@@ -42,15 +42,15 @@ export async function getMenuItemDetail(args: {
   includeModifiers?: boolean;
 }) {
   const session = loadAuthSession();
-  const res = await apiClient.get<{ success: boolean; data: PublicMenuItemDetail }>(
-    `/public/menu/items/${args.slug}`,
-    {
-      params: {
-        includeModifiers: args.includeModifiers === false ? "false" : "true",
-        locationId: session?.user?.activeLocationId ?? undefined,
-      },
+  const res = await apiClient.get<{
+    success: boolean;
+    data: PublicMenuItemDetail;
+  }>(`/public/menu/items/${args.slug}`, {
+    params: {
+      includeModifiers: args.includeModifiers === false ? "false" : "true",
+      locationId: session?.user?.activeLocationId ?? undefined,
     },
-  );
+  });
   if (!res.data?.success) {
     throw new Error("Failed to load menu item detail");
   }
@@ -65,8 +65,8 @@ export async function createPosTicket(body?: {
   orderType?: "dine_in" | "takeaway" | "delivery" | "catering";
   tableNumber?: string;
 }) {
-  const res = await apiClient.post<PosTicket>(`/pos/tickets`, body ?? {});
-  return res.data;
+  const res = await apiClient.post<{ data: PosTicket }>(`/pos/tickets`, body ?? {});
+  return res?.data?.data;
 }
 
 export async function getMyPosTicket(ticketToken: string) {
@@ -80,13 +80,15 @@ export async function listPosTickets(params?: {
   status?: string;
   limit?: number;
 }) {
-  const res = await apiClient.get<{ items: PosTicket[] }>(`/pos/tickets`, {
+  const session = loadAuthSession();
+  const res = await apiClient.get<{ data: {items: PosTicket[]} }>(`/pos/tickets`, {
     params: {
       status: params?.status ?? undefined,
       limit: params?.limit ?? 50,
     },
+    headers: { "x-location-id": session?.user?.activeLocationId ?? "" },
   });
-  return res.data;
+  return res?.data?.data;
 }
 
 export async function setPosTicketItems(args: {
@@ -94,42 +96,42 @@ export async function setPosTicketItems(args: {
   items: PosTicketLine[];
   clientUpdatedAt?: string;
 }) {
-  const res = await apiClient.put<PosTicket>(
+  const res = await apiClient.put<{ data: PosTicket }>(
     `/pos/tickets/items`,
     { items: args.items, clientUpdatedAt: args.clientUpdatedAt ?? undefined },
     { headers: { "x-ticket-token": args.ticketToken } },
   );
-  return res.data;
+  return res?.data?.data;
 }
 
 export async function quotePosTicket(args: {
   ticketToken: string;
   includeUnavailableItems?: boolean;
 }) {
-  const res = await apiClient.post<PosQuoteResponse>(
+  const res = await apiClient.post<{ data: PosQuoteResponse }>(
     `/pos/tickets/quote`,
     { includeUnavailableItems: args.includeUnavailableItems ?? false },
     { headers: { "x-ticket-token": args.ticketToken } },
   );
-  return res.data;
+  return res?.data?.data;
 }
 
 export async function holdPosTicket(ticketToken: string) {
-  const res = await apiClient.post<PosTicket>(
+  const res = await apiClient.post<{ data: PosTicket }>(
     `/pos/tickets/hold`,
     {},
     { headers: { "x-ticket-token": ticketToken } },
   );
-  return res.data;
+  return res?.data?.data;
 }
 
 export async function recallPosTicket(ticketToken: string) {
-  const res = await apiClient.post<PosTicket>(
+  const res = await apiClient.post<{ data: PosTicket }>(
     `/pos/tickets/recall`,
     {},
     { headers: { "x-ticket-token": ticketToken } },
   );
-  return res.data;
+  return res?.data?.data;
 }
 
 export async function applyPosPromo(args: {
@@ -161,7 +163,7 @@ export async function convertPosTicket(args: {
   kitchenNotes?: string;
   tableNumber?: string;
 }) {
-  const res = await apiClient.post<PosConvertResponse>(
+  const res = await apiClient.post<{ data: PosConvertResponse }>(
     `/pos/tickets/convert`,
     {
       clientTotal: args.clientTotal ?? undefined,
@@ -171,7 +173,7 @@ export async function convertPosTicket(args: {
     },
     { headers: { "x-ticket-token": args.ticketToken } },
   );
-  return res.data;
+  return res?.data?.data;
 }
 
 export async function updatePosTicketContext(args: {
@@ -179,7 +181,7 @@ export async function updatePosTicketContext(args: {
   orderType?: "dine_in" | "takeaway" | "delivery" | "catering";
   tableNumber?: string;
 }) {
-  const res = await apiClient.put<PosTicket>(
+  const res = await apiClient.put<{ data: PosTicket }>(
     `/pos/tickets/context`,
     {
       orderType: args.orderType ?? undefined,
@@ -187,7 +189,7 @@ export async function updatePosTicketContext(args: {
     },
     { headers: { "x-ticket-token": args.ticketToken } },
   );
-  return res.data;
+  return res?.data?.data;
 }
 
 export async function addPosPayment(args: {

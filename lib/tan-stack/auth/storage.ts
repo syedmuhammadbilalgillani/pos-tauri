@@ -1,7 +1,7 @@
 import type { AuthSession } from "@/types";
 import { isTauri } from "./runtime";
-import { PermissionMap } from "@/lib/permissions/types";
-// import Cookies from "js-cookie";
+import Cookies from "js-cookie";
+
 const STORAGE_KEY = "pos-auth-session";
 const STORE_FILE = "pos-auth.json";
 
@@ -29,7 +29,7 @@ function safeParse(raw: string | null): AuthSession | null {
 }
 
 function loadFromLocalStorage(): AuthSession | null {
-  return safeParse(localStorage.getItem(STORAGE_KEY));
+  return safeParse(Cookies.get(STORAGE_KEY) ?? null);
 }
 
 async function getTauriStore() {
@@ -43,10 +43,7 @@ async function loadFromTauriDisk(): Promise<AuthSession | null> {
   return value ?? null;
 }
 
-/**
- * Call once on app startup (see Providers). Loads Tauri disk → cache.
- * On web, first sync read happens in loadAuthSession() instead.
- */
+/** Call once on app startup (see Providers). Loads Tauri disk → cache. */
 export async function hydrateAuthStorage(): Promise<void> {
   if (!isTauri()) {
     cache = loadFromLocalStorage();
@@ -55,10 +52,7 @@ export async function hydrateAuthStorage(): Promise<void> {
   cache = await loadFromTauriDisk();
 }
 
-/**
- * Sync read for api-helper / interceptors. Web: lazy-hydrates from localStorage once.
- * Tauri: use after hydrateAuthStorage() (or cache stays null until hydrate).
- */
+/** Sync read for api-helper / interceptors. */
 export function loadAuthSession(): AuthSession | null {
   if (typeof window === "undefined") return null;
   if (cache !== null) return cache;
@@ -75,7 +69,7 @@ export async function saveAuthSession(session: AuthSession): Promise<void> {
     await store.set(STORAGE_KEY, session);
     await store.save();
   } else {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    Cookies.set(STORAGE_KEY, JSON.stringify(session));
   }
 }
 
@@ -86,40 +80,46 @@ export async function clearAuthSession(): Promise<void> {
     await store.delete(STORAGE_KEY);
     await store.save();
   } else {
-    localStorage.removeItem(STORAGE_KEY);
+    Cookies.remove(STORAGE_KEY);
   }
 }
 
+/** Update tokens only — called after a successful token refresh. */
 export async function updateSessionTokens(
-  accessToken:          string,
-  refreshToken:         string,
-  permissions?:         PermissionMap,
-  permissionsUpdatedAt?: number,
+  accessToken: string,
+  refreshToken: string,
 ): Promise<void> {
   const current = loadAuthSession();
   if (!current) return;
-
   await saveAuthSession({
     ...current,
     accessToken,
     refreshToken,
     updatedAt: Date.now(),
+  });
+}
+
+/** Update permissions only — called after fetching /me with a location context. */
+export async function updateSessionPermissions(
+  permissions: any,
+  permissionsUpdatedAt: number,
+): Promise<void> {
+  const current = loadAuthSession();
+  if (!current) return;
+  await saveAuthSession({
+    ...current,
+    updatedAt: Date.now(),
     user: {
       ...current.user,
-      // Only update permissions if server sent fresh ones
-      ...(permissions !== undefined && {
-        permissions,
-        permissionsUpdatedAt: permissionsUpdatedAt ?? Date.now(),
-      }),
+      permissions,
+      permissionsUpdatedAt,
     },
   });
 }
-// tauri-pos/lib/tan-stack/auth/storage.ts (proposed addition)
 
 export async function setActiveLocationId(locationId: string): Promise<void> {
   const current = loadAuthSession();
   if (!current) return;
-
   await saveAuthSession({
     ...current,
     updatedAt: Date.now(),

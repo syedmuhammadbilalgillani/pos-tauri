@@ -134,13 +134,7 @@ async function tryRefreshSession(): Promise<boolean> {
   try {
     const { refreshRequest } = await import("@/lib/tan-stack/auth/api");
     const tokens = await refreshRequest(session.refreshToken);
-    // Pass permissions from refresh response
-    await updateSessionTokens(
-      tokens.accessToken,
-      tokens.refreshToken,
-      tokens.permissions, // ← NEW
-      tokens.permissionsUpdatedAt, // ← NEW
-    );
+    await updateSessionTokens(tokens.accessToken, tokens.refreshToken);
     syncAuthQueryAfterTokenUpdate();
     return true;
   } catch {

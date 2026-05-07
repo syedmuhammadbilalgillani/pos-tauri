@@ -1,23 +1,23 @@
 "use client";
 
 import { create } from "zustand";
-import type { KdsItemStatus, KdsOrderStatus, OrderWithItems } from "@/types";
+import type { KdsItemStatus, KdsOrderStatus, OrderItem } from "@/types";
 
 type OrdersState = {
-  ordersById: Record<string, OrderWithItems>;
+  ordersById: Record<string, OrderItem>;
   orderIds: string[];
   nextCursor: string | null;
   lastSyncedAt: string | null;
 
-  setFromFeed: (orders: OrderWithItems[], nextCursor: string | null) => void;
-  upsertOrder: (order: OrderWithItems) => void;
+  setFromFeed: (orders: OrderItem[], nextCursor: string | null) => void;
+  upsertOrder: (order: OrderItem) => void;
   updateOrderStatus: (orderId: string, toStatus: KdsOrderStatus) => void;
   updateItemStatus: (orderId: string, orderItemId: string, status: KdsItemStatus) => void;
   removeOrder: (orderId: string) => void;
   reset: () => void;
 };
 
-function sortOrderIds(ordersById: Record<string, OrderWithItems>): string[] {
+function sortOrderIds(ordersById: Record<string, OrderItem>): string[] {
   return Object.values(ordersById)
     .sort((a, b) => {
       const at = Date.parse(a.createdAt);
@@ -35,7 +35,7 @@ export const useOrdersStore = create<OrdersState>((set) => ({
 
   setFromFeed: (orders, nextCursor) =>
     set(() => {
-      const ordersById: Record<string, OrderWithItems> = {};
+      const ordersById: Record<string, OrderItem> = {};
       for (const o of orders) ordersById[o.id] = o;
       return {
         ordersById,
