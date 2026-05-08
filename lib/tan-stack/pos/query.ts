@@ -7,15 +7,32 @@ import {
   listPosTickets,
   quotePosTicket,
 } from "./api";
+import {
+  cacheMenuCategories,
+  cacheMenuItems,
+  getCachedMenuCategories,
+  getCachedMenuItems,
+} from "@/lib/offline/menu-cache";
 
 export const useGetMenuCategoriesQuery = () =>
   useQuery({
     queryKey: ["pos-menu-categories"],
-    queryFn: () => getMenuCategories(),
-    // Menu bootstrap rarely changes; keep it warm.
-    staleTime: 1000 * 60 * 30, // 30 min
-    gcTime: 1000 * 60 * 60, // 60 min
+    queryFn: async () => {
+      try {
+        const data = await getMenuCategories();
+        if (data) cacheMenuCategories(data).catch(() => {});
+        return data;
+      } catch {
+        // Fall back to SQLite cache when offline
+        const cached = await getCachedMenuCategories();
+        if (cached) return cached as Awaited<ReturnType<typeof getMenuCategories>>;
+        throw new Error("No menu data available offline");
+      }
+    },
+    staleTime: 1000 * 60 * 30,
+    gcTime: 1000 * 60 * 60,
     refetchOnWindowFocus: false,
+    retry: 0, // don't hammer server when offline
   });
 
 export const useMenuItemDetailQuery = (slug: string | null, enabled: boolean) =>
@@ -24,9 +41,8 @@ export const useMenuItemDetailQuery = (slug: string | null, enabled: boolean) =>
     queryFn: () =>
       getMenuItemDetail({ slug: slug as string, includeModifiers: true }),
     enabled: enabled && Boolean(slug),
-    // Item detail (with modifiers) is stable; cache aggressively.
-    staleTime: 1000 * 60 * 30, // 30 min
-    gcTime: 1000 * 60 * 60, // 60 min
+    staleTime: 1000 * 60 * 30,
+    gcTime: 1000 * 60 * 60,
     refetchOnWindowFocus: false,
   });
 
@@ -37,13 +53,27 @@ export const useGetMenuItemsQuery = (
 ) =>
   useInfiniteQuery({
     queryKey: ["pos-menu-items", categoryId, menuId],
-    queryFn: ({ pageParam }) =>
-      getMenuItems({
-        categoryId,
-        menuId,
-        cursor: (pageParam as string | null | undefined) ?? undefined,
-        limit: 20,
-      }),
+    queryFn: async ({ pageParam }) => {
+      try {
+        const data = await getMenuItems({
+          categoryId,
+          menuId,
+          cursor: (pageParam as string | null | undefined) ?? undefined,
+          limit: 20,
+        });
+        if (data && !pageParam) {
+          // Only cache first page (no cursor) to keep cache size reasonable
+          cacheMenuItems(categoryId, menuId, data).catch(() => {});
+        }
+        return data;
+      } catch {
+        if (!pageParam) {
+          const cached = await getCachedMenuItems(categoryId, menuId);
+          if (cached) return cached as ReturnType<typeof getMenuItems>;
+        }
+        throw new Error("Menu items unavailable offline");
+      }
+    },
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage: unknown) => {
       const lp = lastPage as {
@@ -54,11 +84,11 @@ export const useGetMenuItemsQuery = (
       return hasMore ? next : undefined;
     },
     enabled: enabled && Boolean(menuId) && Boolean(categoryId),
-    staleTime: 1000 * 60 * 10, // 10 min
-    gcTime: 1000 * 60 * 60, // 60 min
+    staleTime: 1000 * 60 * 10,
+    gcTime: 1000 * 60 * 60,
     refetchOnWindowFocus: false,
-    // Keep previous pages visible while loading more.
     placeholderData: (prev) => prev,
+    retry: 0,
   });
 
 export const useMyPosTicketQuery = (ticketToken: string | null, enabled: boolean) =>
@@ -66,10 +96,10 @@ export const useMyPosTicketQuery = (ticketToken: string | null, enabled: boolean
     queryKey: ["pos-ticket", ticketToken],
     queryFn: () => getMyPosTicket(ticketToken as string),
     enabled: enabled && Boolean(ticketToken),
-    // Ticket is dynamic; keep fresh-ish but avoid thrash.
-    staleTime: 1000 * 5, // 5s
-    gcTime: 1000 * 60 * 10, // 10 min
+    staleTime: 1000 * 5,
+    gcTime: 1000 * 60 * 10,
     refetchOnWindowFocus: false,
+    retry: 1,
   });
 
 export const useListPosTicketsQuery = (args?: {
@@ -79,9 +109,10 @@ export const useListPosTicketsQuery = (args?: {
   useQuery({
     queryKey: ["pos-tickets", args?.status ?? "all", args?.limit ?? 50],
     queryFn: () => listPosTickets(args),
-    staleTime: 1000 * 5, // 5s
-    gcTime: 1000 * 60 * 10, // 10 min
+    staleTime: 1000 * 5,
+    gcTime: 1000 * 60 * 10,
     refetchOnWindowFocus: false,
+    retry: 0,
   });
 
 export const useQuotePosTicketQuery = (ticketToken: string | null, enabled: boolean) =>
@@ -90,7 +121,7 @@ export const useQuotePosTicketQuery = (ticketToken: string | null, enabled: bool
     queryFn: () => quotePosTicket({ ticketToken: ticketToken as string }),
     enabled: enabled && Boolean(ticketToken),
     refetchOnWindowFocus: false,
-    // Quote changes often; don't keep stale for long.
     staleTime: 0,
     gcTime: 1000 * 60 * 10,
+    retry: 0,
   });

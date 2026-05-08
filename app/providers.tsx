@@ -7,6 +7,8 @@ import {
 } from '@/lib/tan-stack/auth/storage';
 import { usePermissionsSync } from '@/lib/tan-stack/auth/permissions-sync';
 import { queryClient } from '@/lib/tan-stack/query-client';
+import { hydratePendingOrders, syncOfflineOrders } from '@/lib/offline/sync';
+import { useOfflineStore } from '@/store/offline';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Loader2 } from 'lucide-react';
@@ -46,5 +48,33 @@ function AuthHydrate({ children }: { children: React.ReactNode }) {
 /** Separate component so the hook runs after hydration is complete. */
 function PermissionsSyncProvider({ children }: { children: React.ReactNode }) {
   usePermissionsSync(); // ← auto-refresh on focus / visibilitychange
+  useOfflineSync();
   return <>{children}</>;
+}
+
+/** Registers network listeners and syncs offline orders on reconnect. */
+function useOfflineSync() {
+  const setNetworkStatus = useOfflineStore((s) => s.setNetworkStatus);
+
+  React.useEffect(() => {
+    // Hydrate pending orders count on mount
+    void hydratePendingOrders();
+
+    // Set initial network status
+    setNetworkStatus(navigator.onLine ? 'online' : 'offline');
+
+    const onOnline = () => {
+      setNetworkStatus('online');
+      void syncOfflineOrders();
+    };
+    const onOffline = () => setNetworkStatus('offline');
+
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [setNetworkStatus]);
 }
