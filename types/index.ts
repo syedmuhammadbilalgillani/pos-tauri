@@ -4,12 +4,14 @@ export type LocationData = {
   id: string;
   name?: string | null;
 };
+export type UserPermissions = Record<string, Record<string, boolean>>;
+
 export type AuthUser = {
   id: string;
   name: string | null;
   email: string;
   tenantId: string;
-  permissions: any;
+  permissions: UserPermissions;
   permissionsUpdatedAt: number;
   locationData: LocationData[];
   activeLocationId: string | null;
@@ -320,7 +322,7 @@ export type PosQuoteResponse = {
     type: string;
     value: string;
   };
-  issues: Array<{ code: string; message: string; meta?: any }>;
+  issues: Array<{ code: string; message: string; meta?: Record<string, unknown> }>;
 };
 export type PosConvertResponse = {
   id: string;
@@ -331,6 +333,6 @@ export type PosConvertResponse = {
   currency: string;
 };
 export type PosPaymentResponse = {
-  payment: any;
+  payment: Record<string, unknown>;
   paymentStatus: "unpaid" | "partial" | "paid" | "failed" | string;
 };
