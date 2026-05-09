@@ -66,6 +66,11 @@ import {
 } from "@/lib/tan-stack/pos/ticket-token";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
+import {
+  useOfflineInit,
+  calculateItemPrice,
+  validateModifierSelections,
+} from "@/lib/offline";
 
 type MenuItem = {
   id: string;
@@ -94,6 +99,30 @@ type MenuItemsQuery = {
   fetchNextPage?: () => Promise<unknown>;
 };
 
+/**
+ * Calculate live price with selected modifiers
+ * Updates instantly as modifiers are selected (offline-first)
+ */
+function calculateLivePrice(
+  item: PublicMenuItemDetail,
+  selectedMods: Record<string, string[]>,
+): string {
+  const modifiers: Array<{ priceAdjustment: string }> = [];
+
+  // Collect all selected modifiers and their prices
+  for (const group of item.modifierGroups ?? []) {
+    const selected = selectedMods[group.id] ?? [];
+    for (const modId of selected) {
+      const mod = group.modifiers.find((m) => m.id === modId);
+      if (mod) {
+        modifiers.push({ priceAdjustment: mod.priceDelta });
+      }
+    }
+  }
+
+  return calculateItemPrice(item.basePrice, modifiers);
+}
+
 function formatMoney(raw?: string | number | null) {
   const n =
     typeof raw === "number"
@@ -106,6 +135,9 @@ function formatMoney(raw?: string | number | null) {
 }
 
 export default function POSPage() {
+  // Initialize offline cache on startup
+  useOfflineInit();
+
   // -------------------------
   // Ticket token + order id
   // -------------------------
@@ -193,36 +225,10 @@ export default function POSPage() {
 
   function validateGroups(groups: PublicModifierGroup[] | undefined) {
     if (!groups?.length) return { ok: true as const };
-    for (const g of groups) {
-      const selected = selectedModsByGroup[g.id] ?? [];
-      const min = Math.max(0, g.minSelections ?? 0);
-      const max = g.maxSelections ?? null;
-      const requiredMin = g.isRequired ? Math.max(1, min) : min;
 
-      if (selected.length < requiredMin) {
-        return {
-          ok: false as const,
-          message: `Select at least ${requiredMin} for "${g.name}"`,
-        };
-      }
-      if (max != null && selected.length > max) {
-        return {
-          ok: false as const,
-          message: `Select at most ${max} for "${g.name}"`,
-        };
-      }
-      if (g.selectionType === "exactly" && selected.length !== min) {
-        return {
-          ok: false as const,
-          message: `Select exactly ${min} for "${g.name}"`,
-        };
-      }
-      if (g.selectionType === "single" && selected.length > 1) {
-        return {
-          ok: false as const,
-          message: `"${g.name}" allows 1 selection`,
-        };
-      }
+    const result = validateModifierSelections(selectedModsByGroup, groups);
+    if (!result.valid) {
+      return { ok: false as const, message: result.message };
     }
     return { ok: true as const };
   }
@@ -964,7 +970,7 @@ export default function POSPage() {
             </SheetDescription>
           </SheetHeader>
 
-          <div className="px-6 pb-6 space-y-4">
+          <div className="px-6 pb-6 space-y-4 overflow-y-auto">
             {itemDetailQ.isLoading ? (
               <div className="space-y-2">
                 <div className="h-12 rounded-md bg-muted" />
@@ -981,6 +987,11 @@ export default function POSPage() {
                   <div className="text-sm font-semibold">{itemDetail.name}</div>
                   <div className="text-xs text-muted-foreground">
                     {itemDetail.slug} • SKU: {itemDetail.sku}
+                  </div>
+                  <div className="mt-2 pt-2 border-t">
+                    <div className="text-lg font-bold text-primary">
+                      ${calculateLivePrice(itemDetail, selectedModsByGroup)}
+                    </div>
                   </div>
                 </div>
 
@@ -1106,7 +1117,7 @@ export default function POSPage() {
 
                   const check = validateGroups(itemDetail.modifierGroups);
                   if (!check.ok) {
-                    setCustomizeError(check.message);
+                    setCustomizeError(check.message || "Invalid modifier selection");
                     return;
                   }
 

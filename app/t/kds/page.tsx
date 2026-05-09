@@ -1,143 +1,329 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useOrdersStore } from "@/store/orders";
-import { useRealtimeOrders } from "@/hooks/useRealtimeOrders";
-import type { KdsOrderStatus, OrderItem } from "@/types";
-import { fetchKdsOrders } from "@/lib/kds";
-import { OrderColumn } from "@/components/OrderColumn";
+import { JSX, useEffect, useMemo, useRef, useState } from "react";
+import { useKdsOrdersListQuery } from "@/lib/tan-stack/kds/query";
+import {
+  useUpdateKdsItemStatusMutation,
+  useUpdateKdsOrderStatusMutation,
+} from "@/lib/tan-stack/kds/mutation";
+import { createKdsStream, type KdsStreamEvent } from "@/lib/tan-stack/kds/api";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import type { KdsOrderStatus, KdsItemStatus } from "@/types";
 import { toast } from "sonner";
 
-const BOARD_STATUSES: KdsOrderStatus[] = [
-  "pending",
-  "confirmed",
-  "preparing",
-  "ready",
-];
-
-function byStatus(orders: OrderItem[], status: KdsOrderStatus) {
-  return orders.filter((o) => o.status === status);
+interface KdsOrder {
+  id: string;
+  orderNumber: string;
+  dailyTicket: number;
+  orderType: string;
+  tableNumber: string | null;
+  status: KdsOrderStatus;
+  items: Array<{
+    id: string;
+    itemNameSnapshot: string;
+    itemSkuSnapshot: string | null;
+    quantity: number;
+    status: KdsItemStatus;
+    specialInstructions: string | null;
+    modifiers: Array<{
+      id: string;
+      modifierNameSnapshot: string;
+      priceDeltaSnapshot: string;
+    }>;
+  }>;
+  createdAt: string;
+  estimatedPrepMinutes: number | null;
 }
 
-export default function KdsPage() {
-  const { connection, connectionError } = useRealtimeOrders("kds");
+function getUrgencyLevel(
+  createdAt: string,
+  estimatedPrepMinutes: number | null
+): "fresh" | "moderate" | "urgent" | "sla_breached" {
+  const elapsed = (Date.now() - new Date(createdAt).getTime()) / 1000;
+  const target = (estimatedPrepMinutes ?? 10) * 60;
 
-  const ordersById = useOrdersStore((s) => s.ordersById);
-  const orderIds = useOrdersStore((s) => s.orderIds);
-  const setFromFeed = useOrdersStore((s) => s.setFromFeed);
-  const lastSyncedAt = useOrdersStore((s) => s.lastSyncedAt);
+  if (elapsed < target * 0.5) return "fresh";
+  if (elapsed < target * 0.8) return "moderate";
+  if (elapsed < target) return "urgent";
+  return "sla_breached";
+}
 
-  const [loading, setLoading] = useState(false);
+const urgencyStyles = {
+  fresh: { border: "border-green-600", bg: "bg-background", indicator: "bg-green-600" },
+  moderate: { border: "border-amber-500", bg: "bg-background", indicator: "bg-amber-500" },
+  urgent: { border: "border-orange-500", bg: "bg-orange-950/20", indicator: "bg-orange-500" },
+  sla_breached: {
+    border: "border-red-600",
+    bg: "bg-red-950/30",
+    indicator: "bg-red-600 animate-pulse",
+  },
+};
 
-  const orders = useMemo(
-    () => orderIds.map((id) => ordersById[id]).filter(Boolean),
-    [orderIds, ordersById],
-  );
+function ElapsedTimer({ startTime }: { startTime: string }): JSX.Element {
+  const [elapsed, setElapsed] = useState<number>(0);
 
-  const pending = useMemo(() => byStatus(orders, "pending"), [orders]);
-  const confirmed = useMemo(() => byStatus(orders, "confirmed"), [orders]);
-  const preparing = useMemo(() => byStatus(orders, "preparing"), [orders]);
-  const ready = useMemo(() => byStatus(orders, "ready"), [orders]);
+  useEffect(() => {
+    const start = new Date(startTime).getTime();
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
 
-  const badge =
-    connection === "connected"
-      ? {
-          label: "Live",
-          dot: "bg-emerald-500",
-          cls: "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-800",
-        }
-      : connection === "connecting"
-        ? {
-            label: "Connecting…",
-            dot: "bg-amber-400 animate-pulse",
-            cls: "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-800",
-          }
-        : connection === "disconnected"
-          ? {
-              label: "Disconnected",
-              dot: "bg-zinc-400",
-              cls: "bg-zinc-100 text-zinc-700 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700",
-            }
-          : {
-              label: "Error",
-              dot: "bg-rose-500 animate-pulse",
-              cls: "bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:border-rose-800",
-            };
-
-  const totalActive = orders.length;
-
-  async function refresh() {
-    setLoading(true);
-    try {
-      const res = await fetchKdsOrders({ status: BOARD_STATUSES, limit: 30 });
-      setFromFeed(res.data, res.nextCursor);
-      toast.success("Board refreshed");
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to load orders";
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const mm = Math.floor(elapsed / 60)
+    .toString()
+    .padStart(2, "0");
+  const ss = (elapsed % 60).toString().padStart(2, "0");
 
   return (
-    <div className="flex-1 flex flex-col bg-zinc-50 dark:bg-zinc-950 max-h-dvh overflow-y-hidden">
-      {/* Header */}
-      <div className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-3">
-        <div className="mx-auto w-full max-w-7xl flex items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">Kitchen Display</h1>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {totalActive} active order{totalActive !== 1 ? "s" : ""}
-              </p>
+    <span className="font-mono font-bold text-lg">
+      {mm}:{ss}
+    </span>
+  );
+}
+
+function KdsOrderCard({ order }: { order: KdsOrder }): JSX.Element {
+  const urgency = getUrgencyLevel(order.createdAt, order.estimatedPrepMinutes);
+  const styles = urgencyStyles[urgency];
+  const updateItemM = useUpdateKdsItemStatusMutation();
+  const updateOrderM = useUpdateKdsOrderStatusMutation();
+
+  const allItemsReady = order.items.every((item) => item.status === "ready");
+
+  return (
+    <Card
+      className={`overflow-hidden border-2 ${styles.border} ${styles.bg} min-w-64 max-w-sm`}
+    >
+      <CardContent className="p-4 space-y-3">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="text-lg font-bold text-foreground">#{order.dailyTicket}</div>
+            <div className="text-xs text-muted-foreground truncate">
+              {order.orderType === "dine_in"
+                ? `Table ${order.tableNumber ?? "?"}`
+                : order.orderType}
             </div>
-
-            {/* Connection badge */}
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${badge.cls}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} />
-              {badge.label}
-            </span>
-
-            {connection !== "connected" && connectionError ? (
-              <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate max-w-[200px]">
-                {connectionError}
-              </span>
-            ) : null}
           </div>
+          <div className="text-center">
+            <div className={`w-3 h-3 rounded-full ${styles.indicator}`} />
+            <ElapsedTimer startTime={order.createdAt} />
+          </div>
+        </div>
 
-          <div className="flex items-center gap-3">
-            {lastSyncedAt ? (
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                Synced {new Date(lastSyncedAt).toLocaleTimeString()}
-              </span>
-            ) : null}
-            <button
-              type="button"
-              onClick={refresh}
-              disabled={loading}
-              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium transition hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+        {/* Items */}
+        <div className="space-y-1.5 text-sm">
+          {order.items.map((item) => {
+            const itemReady = item.status === "ready";
+            return (
+              <div
+                key={item.id}
+                className={`flex items-start justify-between gap-2 p-1.5 rounded border text-xs ${
+                  itemReady ? "bg-green-950/30 border-green-700/50" : "bg-muted/50"
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{item.itemNameSnapshot}</div>
+                  {item.quantity > 1 && (
+                    <div className="text-muted-foreground">× {item.quantity}</div>
+                  )}
+                  {item.specialInstructions && (
+                    <div className="text-muted-foreground italic truncate">
+                      {item.specialInstructions}
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  className="h-6 px-2 text-xs shrink-0"
+                  variant={itemReady ? "default" : "outline"}
+                  onClick={async () => {
+                    try {
+                      const newStatus: KdsItemStatus = itemReady ? "pending" : "ready";
+                      await updateItemM.mutateAsync({
+                        orderItemId: item.id,
+                        status: { status: newStatus },
+                      });
+                    } catch {
+                      // Error handled by mutation
+                    }
+                  }}
+                  disabled={updateItemM.isPending}
+                >
+                  {itemReady ? "✓" : "→"}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Actions */}
+        <div className="pt-2 border-t border-muted-foreground/20 space-y-2">
+          <Button
+            className="w-full h-8 text-xs"
+            variant={order.status === "preparing" ? "default" : "outline"}
+            onClick={async () => {
+              try {
+                const newStatus: KdsOrderStatus =
+                  order.status === "confirmed" ? "preparing" : "ready";
+                await updateOrderM.mutateAsync({
+                  orderId: order.id,
+                  status: { status: newStatus },
+                });
+              } catch {
+                // Error handled by mutation
+              }
+            }}
+            disabled={updateOrderM.isPending || order.status === "ready"}
+          >
+            {order.status === "pending" || order.status === "confirmed"
+              ? "START"
+              : order.status === "preparing"
+                ? "BUMP"
+                : "READY"}
+          </Button>
+
+          {order.status === "ready" && (
+            <Button
+              className="w-full h-8 text-xs bg-green-700 hover:bg-green-800"
+              onClick={async () => {
+                try {
+                  await updateOrderM.mutateAsync({
+                    orderId: order.id,
+                    status: { status: "completed" },
+                  });
+                  toast.success("Order completed");
+                } catch {
+                  // Error handled by mutation
+                }
+              }}
+              disabled={updateOrderM.isPending}
             >
-              {loading ? "Refreshing…" : "Refresh"}
-            </button>
+              COMPLETE
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function KdsPage(): JSX.Element {
+  const ordersQ = useKdsOrdersListQuery();
+  const [orders, setOrders] = useState<KdsOrder[]>([]);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const displayOrders = useMemo(() => {
+    const combined = [
+      ...(ordersQ.data?.data ?? []),
+      ...orders.filter((o) => !ordersQ.data?.data?.find((d) => d.id === o.id)),
+    ];
+    return combined.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [orders, ordersQ.data?.data]);
+
+  // Setup SSE on mount
+  useEffect(() => {
+    const handleStreamEvent = (event: KdsStreamEvent): void => {
+      if (event.type === "order.new") {
+        const newOrder = event.data as unknown as KdsOrder;
+        setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)]);
+      } else if (event.type === "order.updated") {
+        const { orderId, status } = event.data as unknown as {
+          orderId: string;
+          status: KdsOrderStatus;
+        };
+        setOrders((prev) =>
+          prev.map((o) => (o.id === orderId ? { ...o, status } : o))
+        );
+      } else if (event.type === "item.status_updated") {
+        const { orderId, orderItemId, status } = event.data as unknown as {
+          orderId: string;
+          orderItemId: string;
+          status: KdsItemStatus;
+        };
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  items: o.items.map((item) =>
+                    item.id === orderItemId ? { ...item, status } : item
+                  ),
+                }
+              : o
+          )
+        );
+      }
+    };
+
+    try {
+      eventSourceRef.current = createKdsStream(handleStreamEvent);
+    } catch (error) {
+      console.error("Failed to create KDS stream:", error);
+    }
+
+    return () => {
+      eventSourceRef.current?.close();
+    };
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-50 p-4">
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold">🍴 KITCHEN</h1>
+            <p className="text-sm text-slate-400">
+              {ordersQ.data?.data?.length ?? 0} active order
+              {(ordersQ.data?.data?.length ?? 0) !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-mono font-bold">
+              {new Date().toLocaleTimeString()}
+            </div>
+            <Badge
+              variant={ordersQ.isLoading ? "outline" : ordersQ.isError ? "destructive" : "default"}
+            >
+              {ordersQ.isLoading ? "Loading..." : ordersQ.isError ? "Error" : "Live"}
+            </Badge>
           </div>
         </div>
       </div>
 
-      {/* Board */}
-      <ScrollArea className="flex-1">
-        <div className="mx-auto max-w-7xl px-4 py-4">
-          <div className="flex gap-4">
-            <OrderColumn title="Pending" status="pending" orders={pending} />
-            <OrderColumn title="Confirmed" status="confirmed" orders={confirmed} />
-            <OrderColumn title="Preparing" status="preparing" orders={preparing} />
-            <OrderColumn title="Ready" status="ready" orders={ready} />
-          </div>
+      {/* Orders Grid */}
+      {ordersQ.isLoading ? (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-48 rounded-lg bg-slate-900 animate-pulse" />
+          ))}
         </div>
-      </ScrollArea>
+      ) : ordersQ.isError ? (
+        <div className="rounded-lg border-2 border-red-700 bg-red-950/30 p-6 text-center">
+          <div className="text-red-500 text-lg font-semibold">Connection Error</div>
+          <p className="text-sm text-red-400 mt-2">Failed to load KDS orders</p>
+        </div>
+      ) : displayOrders.length === 0 ? (
+        <div className="rounded-lg border-2 border-slate-700 p-12 text-center">
+          <div className="text-4xl mb-4">✨</div>
+          <div className="text-lg font-semibold text-slate-300">All caught up!</div>
+          <p className="text-sm text-slate-400 mt-2">No active orders</p>
+        </div>
+      ) : (
+        <ScrollArea className="h-[calc(100vh-180px)]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pr-4">
+            {displayOrders.map((order) => (
+              <KdsOrderCard key={order.id} order={order} />
+            ))}
+          </div>
+        </ScrollArea>
+      )}
     </div>
   );
 }
